@@ -19,7 +19,7 @@ export async function getFundingRates(req: Request, res: Response) {
       success: true,
       data: formattedData,
       timestamp: Date.now(),
-      count: data.length,
+      count: formattedData.length,
     });
   } catch (error) {
     res.status(500).json({

@@ -1,15 +1,19 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Noto_Sans, Anton } from "next/font/google";
 import "./globals.css";
+import { Providers } from "./providers/provider";
+import Navbar from "@/components/layout/Navbar";
+import { ViewTransitions } from "next-view-transitions";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const notoSans = Noto_Sans({
   subsets: ["latin"],
+  variable: "--font-noto",
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const anton = Anton({
   subsets: ["latin"],
+  weight: "400",
+  variable: "--font-anton",
 });
 
 export const metadata: Metadata = {
@@ -19,16 +23,21 @@ export const metadata: Metadata = {
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode;
-}>) {
+}) {
   return (
-    <html lang="en">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
-        {children}
-      </body>
-    </html>
+    <ViewTransitions>
+      <html lang="en" suppressHydrationWarning>
+        <body
+          className={`${notoSans.variable} ${anton.variable} antialiased`}
+        >
+          <Providers>
+            <Navbar />
+            {children}
+          </Providers>
+        </body>
+      </html>
+    </ViewTransitions>
   );
 }

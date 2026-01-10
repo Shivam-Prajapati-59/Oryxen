@@ -62,6 +62,12 @@ export async function getAllFundingRates(): Promise<MarketFundingData[]> {
         (parseFloat(latestRate.oraclePriceTwap) / 1e6);
 
       const oraclePrice = parseFloat(latestRate.oraclePriceTwap) / 1e6;
+      if (oraclePrice <= 0) {
+        console.error(
+          `Invalid Orcale Price for ${marketSymbol}: ${oraclePrice}`
+        );
+        return;
+      }
 
       allMarketData.push({
         protocol: "drift",

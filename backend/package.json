@@ -13,7 +13,9 @@
     "@drift-labs/sdk": "^2.153.0-beta.4",
     "@nktkas/hyperliquid": "^0.30.2",
     "@solana/web3.js": "^1.98.4",
+    "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
+    "cors": "^2.8.5",
     "express": "^5.2.1"
   }
 }
