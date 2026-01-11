@@ -1,6 +1,8 @@
+// backend/index.ts
 import express from "express";
 import driftRoutes from "./src/routes/drift.routes";
 import hyperliquidRoutes from "./src/routes/hyperliquid.routes";
+import perpsRoutes from "./src/routes/perps.routes";
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -20,6 +22,7 @@ app.use((req, res, next) => {
 // Protocol routes
 app.use("/api/drift", driftRoutes);
 app.use("/api/hyperliquid", hyperliquidRoutes);
+app.use("/api/perps", perpsRoutes);
 
 // Health check
 app.get("/", (req, res) => {
@@ -30,6 +33,7 @@ app.get("/", (req, res) => {
     endpoints: {
       drift: "/api/drift/funding-rates",
       hyperliquid: "/api/hyperliquid/funding-rates",
+      perps: "/api/perps/list",
     },
   });
 });
@@ -66,4 +70,5 @@ app.listen(PORT, () => {
   console.log(
     `📊 Hyperliquid: http://localhost:${PORT}/api/hyperliquid/funding-rates`
   );
+  console.log(`📊 Perps List: http://localhost:${PORT}/api/perps/list`);
 });

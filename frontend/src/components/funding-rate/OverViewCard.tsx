@@ -1,6 +1,6 @@
 import * as React from "react"
 import Image from "next/image"
-import { ArrowUpRight, Coins } from "lucide-react" // Modern icons
+import { ArrowUpRight, Coins } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card"
@@ -9,7 +9,7 @@ import { Badge } from "../ui/badge"
 interface PerpData {
     name: string
     protocol: string
-    baseSymbol: string
+    baseAsset: string
     imageUrl: string | null
 }
 
@@ -18,7 +18,6 @@ interface OverViewCardProps {
 }
 
 const OverViewCard = ({ perps }: OverViewCardProps) => {
-    // Safety check for empty or undefined props
     if (!perps || perps.length === 0) {
         return (
             <div className="w-full p-12 text-center border-2 border-dashed rounded-xl border-muted">
@@ -31,12 +30,14 @@ const OverViewCard = ({ perps }: OverViewCardProps) => {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 w-full p-6">
             {perps.map((perp, index) => {
                 const isHyperliquid = perp.protocol?.toLowerCase().includes("hyperliquid");
-                // Safe values to prevent crashes
-                const safeSymbol = perp.baseSymbol || "UNK";
+                const safeSymbol = perp.baseAsset || "UNK";
                 const displayName = perp.name || "Unknown Pair";
 
                 return (
-                    <Card key={`${perp.protocol}-${index}`} className="group hover:ring-1 hover:ring-primary/40 transition-all duration-300 shadow-sm border-muted-foreground/10 bg-card/50 backdrop-blur-sm">
+                    <Card
+                        key={`${perp.protocol}-${perp.baseAsset}-${index}`}
+                        className="group hover:ring-1 hover:ring-primary/40 transition-all duration-300 shadow-sm border-muted-foreground/10 bg-card/50 backdrop-blur-sm"
+                    >
                         <CardHeader className="pb-3 pt-4 px-4">
                             <div className="flex justify-between items-start">
                                 <div className="flex items-center gap-3">
@@ -45,7 +46,8 @@ const OverViewCard = ({ perps }: OverViewCardProps) => {
                                             <Image
                                                 src={perp.imageUrl}
                                                 alt={safeSymbol}
-                                                fill
+                                                width={40}
+                                                height={40}
                                                 className="object-contain p-1.5"
                                             />
                                         ) : (
@@ -58,14 +60,16 @@ const OverViewCard = ({ perps }: OverViewCardProps) => {
                                         </CardTitle>
                                         <span className="text-[10px] font-mono text-muted-foreground uppercase">
                                             {safeSymbol}
-                                        </span >
+                                        </span>
                                     </div>
                                 </div>
                                 <Badge
                                     variant="secondary"
                                     className={cn(
                                         "text-[9px] font-bold px-1.5 py-0 rounded-sm uppercase tracking-tighter",
-                                        isHyperliquid ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20" : "bg-purple-500/10 text-purple-600 border-purple-500/20"
+                                        isHyperliquid
+                                            ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
+                                            : "bg-purple-500/10 text-purple-600 border-purple-500/20"
                                     )}
                                 >
                                     {isHyperliquid ? "HL" : "Drift"}

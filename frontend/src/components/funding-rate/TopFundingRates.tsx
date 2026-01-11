@@ -16,6 +16,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Separator } from "../ui/separator";
 
 export const highestFundingRates = [
     { id: "1", platform: "DRIFT", market: "CLOUD-PERP", rate: 0.0194 },
@@ -50,12 +51,12 @@ export default function TopFundingRates() {
                     </Select>
                 </div>
             </CardHeader>
-
+            <Separator />
             {/* Table Section */}
-            <CardContent className="pt-0">
+            <CardContent className="pt-0 px-2 xl:px-6">
                 <Table>
                     <TableHeader>
-                        <TableRow className="hover:bg-transparent border-b">
+                        <TableRow className="hover:bg-transparent border-none">
                             <TableHead className="font-semibold">Platform</TableHead>
                             <TableHead className="font-semibold">Market</TableHead>
                             <TableHead className="text-right font-semibold">Rate</TableHead>
