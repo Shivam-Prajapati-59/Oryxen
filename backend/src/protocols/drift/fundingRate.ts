@@ -4,6 +4,9 @@ import type {
   MarketFundingData,
 } from "../../types/fundingRate";
 import { calculateAllTimeframes } from "../../utils/fundingRate";
+import { db } from "../../db/client";
+import { perpsTable } from "../../db/schema";
+import { and, eq } from "drizzle-orm";
 
 async function fetchFundingRatesForMarket(
   marketSymbol: string
@@ -23,23 +26,34 @@ async function fetchFundingRatesForMarket(
   }
 }
 
+async function getCoins(): Promise<string[]> {
+  try {
+    const driftPerps = await db
+      .select()
+      .from(perpsTable)
+      .where(
+        and(
+          eq(perpsTable.market, "Drift Protocol"),
+          eq(perpsTable.isActive, true)
+        )
+      );
+
+    // Return just the symbol for Drift API
+    return driftPerps.map((perp) => perp.symbol);
+  } catch (error: any) {
+    console.error("Error fetching Drift coins:", error);
+    return [];
+  }
+}
+
 export async function getAllFundingRates(): Promise<MarketFundingData[]> {
-  // List of markets to fetch
-  const markets = [
-    "SOL-PERP",
-    "BTC-PERP",
-    "ETH-PERP",
-    "APT-PERP",
-    "DOGE-PERP",
-    "JTO-PERP",
-    "RNDR-PERP",
-    "W-PERP",
-    "TIA-PERP",
-    "JUP-PERP",
-    "PYTH-PERP",
-    "INJ-PERP",
-    "SEI-PERP",
-  ];
+  // Fetch markets from database
+  const markets = await getCoins();
+
+  if (markets.length === 0) {
+    console.warn("No Drift perps found in database");
+    return [];
+  }
 
   const allMarketData: MarketFundingData[] = [];
 
@@ -64,7 +78,7 @@ export async function getAllFundingRates(): Promise<MarketFundingData[]> {
       const oraclePrice = parseFloat(latestRate.oraclePriceTwap) / 1e6;
       if (oraclePrice <= 0) {
         console.error(
-          `Invalid Orcale Price for ${marketSymbol}: ${oraclePrice}`
+          `Invalid Oracle Price for ${marketSymbol}: ${oraclePrice}`
         );
         return;
       }

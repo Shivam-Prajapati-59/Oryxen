@@ -33,7 +33,9 @@ app.get("/", (req, res) => {
     endpoints: {
       drift: "/api/drift/funding-rates",
       hyperliquid: "/api/hyperliquid/funding-rates",
-      perps: "/api/perps/list",
+      perpsList: "/api/perps/list",
+      perpsSync: "/api/perps/sync",
+      perpsDb: "/api/perps/db",
     },
   });
 });
@@ -71,4 +73,6 @@ app.listen(PORT, () => {
     `📊 Hyperliquid: http://localhost:${PORT}/api/hyperliquid/funding-rates`
   );
   console.log(`📊 Perps List: http://localhost:${PORT}/api/perps/list`);
+  console.log(`📊 Perps Sync: POST http://localhost:${PORT}/api/perps/sync`);
+  console.log(`📊 Perps DB: http://localhost:${PORT}/api/perps/db`);
 });

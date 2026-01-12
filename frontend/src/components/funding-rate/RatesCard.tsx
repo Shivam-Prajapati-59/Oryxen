@@ -26,12 +26,18 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ChevronDown, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import Image from "next/image";
 
-import { GROUPS, MARKETS, DATA } from "@/config/FundingRate";
+import { GROUPS } from "@/config/FundingRate";
+import { usePerps } from "@/hooks/usePerps";
+import { useAllFundingRates } from "@/hooks/useFundingRates";
 
 const RatesCard = () => {
     const [timeFrame, setTimeFrame] = useState("current");
     const [selectedProtocols, setSelectedProtocols] = useState<string[]>([]);
+
+    const { data: perps, isLoading: perpsLoading, isError: perpsError, error: perpsErrorMsg } = usePerps();
+    const { drift, hyperliquid, isLoading: ratesLoading } = useAllFundingRates();
 
     const allProtocols = GROUPS.flatMap((g) => g.protocols);
 
@@ -49,6 +55,87 @@ const RatesCard = () => {
             ),
         })).filter((group) => group.protocols.length > 0);
     }, [selectedProtocols]);
+
+    // Filter perps based on selected protocols
+    const filteredPerps = useMemo(() => {
+        if (!perps) return [];
+        if (selectedProtocols.length === 0) return perps;
+
+        return perps.filter((perp) => {
+            const protocol = perp.protocol.toLowerCase();
+            return selectedProtocols.some((key) => {
+                if (key === "drift" && protocol.includes("drift")) return true;
+                if (key === "hyperliquid" && protocol.includes("hyperliquid")) return true;
+                return false;
+            });
+        });
+    }, [perps, selectedProtocols]);
+
+    // Create funding rate lookup map
+    const fundingRatesMap = useMemo(() => {
+        const map = new Map<string, { drift?: number; hyperliquid?: number }>();
+
+        // Add Drift rates
+        drift.data?.data.forEach((rate) => {
+            const existing = map.get(rate.symbol) || {};
+            map.set(rate.symbol, { ...existing, drift: rate.hourlyRate });
+        });
+
+        // Add Hyperliquid rates
+        hyperliquid.data?.data.forEach((rate) => {
+            const existing = map.get(rate.symbol) || {};
+            map.set(rate.symbol, { ...existing, hyperliquid: rate.hourlyRate });
+        });
+
+        return map;
+    }, [drift.data, hyperliquid.data]);
+
+    // Get funding rate for a specific perp and protocol
+    const getFundingRate = (perpName: string, protocolKey: string): string => {
+        // Try exact match first
+        let rates = fundingRatesMap.get(perpName);
+
+        // If no exact match, try to find by base asset
+        if (!rates) {
+            // Extract base asset (e.g., "BTCUSDT" -> "BTC", "BTC-PERP" -> "BTC")
+            const baseAsset = perpName.replace(/USDT?|PERP|-PERP|-USD/gi, '').trim();
+            const perpSymbol = `${baseAsset}-PERP`;
+            rates = fundingRatesMap.get(perpSymbol);
+        }
+
+        if (!rates) return "-";
+
+        const rate = protocolKey === "drift" ? rates.drift : rates.hyperliquid;
+        if (rate === undefined) return "-";
+
+        // Format as percentage with appropriate precision
+        const formatted = (rate * 100).toFixed(4);
+        return `${formatted}%`;
+    };
+
+    const isLoading = perpsLoading || ratesLoading;
+    const isError = perpsError;
+
+    if (isLoading) {
+        return (
+            <Card className="h-full w-full p-2 border border-black/20 dark:border-white/10">
+                <CardContent className="py-12 text-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+                    <p className="text-muted-foreground">Loading markets and rates...</p>
+                </CardContent>
+            </Card>
+        );
+    }
+
+    if (isError) {
+        return (
+            <Card className="h-full w-full p-2 border border-black/20 dark:border-white/10">
+                <CardContent className="py-12 text-center">
+                    <p className="text-destructive">Error: {perpsErrorMsg?.message}</p>
+                </CardContent>
+            </Card>
+        );
+    }
 
     return (
         <Card className="h-full w-full p-2 border border-black/20 dark:border-white/10">
@@ -137,67 +224,113 @@ const RatesCard = () => {
 
             {/* ---------------- Table Section ---------------- */}
             <CardContent className="pt-0">
-                <Table>
-                    <TableHeader className="border-t border-border">
-                        <TableRow className="border-b">
-                            <TableHead className="border-r border-border" />
-                            {visibleGroups.map((group, idx) => (
-                                <TableHead
-                                    key={group.key}
-                                    colSpan={group.protocols.length}
-                                    className={`text-center font-semibold text-lg ${idx < visibleGroups.length - 1 ? "border-r border-border" : ""
-                                        }`}
-                                >
-                                    {group.metric}
+                <div className="border rounded-lg overflow-hidden">
+                    <Table>
+                        <TableHeader>
+                            <TableRow className="bg-muted/50 hover:bg-muted/50">
+                                <TableHead className="font-semibold border-r border-border">
+                                    Market
                                 </TableHead>
-                            ))}
-                        </TableRow>
-                        <TableRow className="border-b">
-                            <TableHead className="font-semibold border-r border-border text-xs uppercase tracking-wider">
-                                Market
-                            </TableHead>
-                            {visibleGroups.flatMap((group, groupIdx) =>
-                                group.protocols.map((protocol, protocolIdx) => {
-                                    const isLastProtocol = protocolIdx === group.protocols.length - 1;
-                                    const isLastGroup = groupIdx === visibleGroups.length - 1;
-                                    return (
-                                        <TableHead
-                                            key={protocol.key}
-                                            className={`text-center font-medium ${isLastProtocol && !isLastGroup ? "border-r border-border" : ""
-                                                }`}
-                                        >
-                                            {protocol.label}
-                                        </TableHead>
-                                    );
-                                })
-                            )}
-                        </TableRow>
-                    </TableHeader>
-
-                    <TableBody>
-                        {MARKETS.map((market) => (
-                            <TableRow key={market} className="hover:bg-muted/50 border-none">
-                                <TableCell className="font-bold border-r border-border">{market}</TableCell>
+                                {visibleGroups.map((group, idx) => (
+                                    <TableHead
+                                        key={group.key}
+                                        colSpan={group.protocols.length}
+                                        className={`text-center font-semibold text-base ${idx < visibleGroups.length - 1 ? "border-r-2 border-border" : ""
+                                            }`}
+                                    >
+                                        {group.metric}
+                                    </TableHead>
+                                ))}
+                            </TableRow>
+                            <TableRow className="bg-muted/30 hover:bg-muted/30">
+                                <TableHead className="font-semibold border-r border-border">
+                                    <span className="text-xs text-muted-foreground">
+                                        {filteredPerps.length} markets
+                                    </span>
+                                </TableHead>
                                 {visibleGroups.flatMap((group, groupIdx) =>
                                     group.protocols.map((protocol, protocolIdx) => {
                                         const isLastProtocol = protocolIdx === group.protocols.length - 1;
                                         const isLastGroup = groupIdx === visibleGroups.length - 1;
-                                        const value = DATA[market]?.[group.key]?.[protocol.key] || "-";
                                         return (
-                                            <TableCell
-                                                key={`${market}-${protocol.key}`}
-                                                className={`text-center font-mono ${isLastProtocol && !isLastGroup ? "border-r border-border" : ""
+                                            <TableHead
+                                                key={protocol.key}
+                                                className={`text-center font-medium ${isLastProtocol && !isLastGroup ? "border-r-2 border-border" : ""
                                                     }`}
                                             >
-                                                {value}
-                                            </TableCell>
+                                                {protocol.label}
+                                            </TableHead>
                                         );
                                     })
                                 )}
                             </TableRow>
-                        ))}
-                    </TableBody>
-                </Table>
+                        </TableHeader>
+
+                        <TableBody>
+                            {filteredPerps.map((perp, idx) => (
+                                <TableRow
+                                    key={`${perp.name}-${idx}`}
+                                    className="hover:bg-muted/50 transition-colors"
+                                >
+                                    <TableCell className="font-medium border-r border-border">
+                                        <div className="flex items-center gap-3">
+                                            {perp.imageUrl ? (
+                                                <Image
+                                                    src={perp.imageUrl}
+                                                    alt={perp.baseAsset}
+                                                    width={24}
+                                                    height={24}
+                                                    className="rounded-full"
+                                                />
+                                            ) : (
+                                                <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center">
+                                                    <span className="text-xs font-bold">
+                                                        {perp.baseAsset.slice(0, 1)}
+                                                    </span>
+                                                </div>
+                                            )}
+                                            <span className="font-semibold">{perp.name}</span>
+                                        </div>
+                                    </TableCell>
+
+                                    {visibleGroups.flatMap((group, groupIdx) =>
+                                        group.protocols.map((protocol, protocolIdx) => {
+                                            const isLastProtocol = protocolIdx === group.protocols.length - 1;
+                                            const isLastGroup = groupIdx === visibleGroups.length - 1;
+
+                                            // Only show funding rates for Funding Rate group
+                                            const rate = group.key === "funding"
+                                                ? getFundingRate(perp.name, protocol.key)
+                                                : "-";
+
+                                            // Determine color based on rate value
+                                            const rateValue = rate !== "-" ? parseFloat(rate) : 0;
+                                            const isPositive = rateValue > 0;
+                                            const isNegative = rateValue < 0;
+
+                                            return (
+                                                <TableCell
+                                                    key={`${perp.name}-${protocol.key}`}
+                                                    className={`text-center font-mono text-sm ${isLastProtocol && !isLastGroup ? "border-r-2 border-border" : ""
+                                                        } ${rate !== "-"
+                                                            ? isPositive
+                                                                ? "text-green-500 dark:text-green-400 font-medium"
+                                                                : isNegative
+                                                                    ? "text-red-500 dark:text-red-400 font-medium"
+                                                                    : "text-foreground font-medium"
+                                                            : "text-muted-foreground"
+                                                        }`}
+                                                >
+                                                    {rate}
+                                                </TableCell>
+                                            );
+                                        })
+                                    )}
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                    </Table>
+                </div>
             </CardContent>
         </Card>
     );

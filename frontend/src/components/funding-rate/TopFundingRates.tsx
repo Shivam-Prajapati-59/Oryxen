@@ -1,5 +1,6 @@
 "use client"
 import * as React from "react";
+import { motion } from "motion/react";
 import {
     Table,
     TableBody,
@@ -30,61 +31,67 @@ export default function TopFundingRates() {
     const [timeFrame, setTimeFrame] = React.useState("current");
 
     return (
-        <Card className="w-full dark:border-white/10 border-black/20">
-            {/* Header Section */}
-            <CardHeader>
-                <div className="flex flex-row justify-between items-center">
-                    <h2 className="text-xl font-bold tracking-tight text-green-500">
-                        Highest Funding Rate
-                    </h2>
+        <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, ease: "easeOut" }}>
 
-                    <Select value={timeFrame} onValueChange={setTimeFrame}>
-                        <SelectTrigger className="w-32 h-9">
-                            <SelectValue placeholder="Timeframe" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="current">Current</SelectItem>
-                            <SelectItem value="4h">4h</SelectItem>
-                            <SelectItem value="12h">12h</SelectItem>
-                            <SelectItem value="24h">24h</SelectItem>
-                        </SelectContent>
-                    </Select>
-                </div>
-            </CardHeader>
-            <Separator />
-            {/* Table Section */}
-            <CardContent className="pt-0 px-2 xl:px-6">
-                <Table>
-                    <TableHeader>
-                        <TableRow className="hover:bg-transparent border-none">
-                            <TableHead className="font-semibold">Platform</TableHead>
-                            <TableHead className="font-semibold">Market</TableHead>
-                            <TableHead className="text-right font-semibold">Rate</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {highestFundingRates.map((funding) => (
-                            <TableRow
-                                key={funding.id}
-                                className="border-none hover:bg-transparent"
-                            >
-                                <TableCell className="font-medium">
-                                    {funding.platform}
-                                </TableCell>
-                                <TableCell className="text-muted-foreground">
-                                    {funding.market}
-                                </TableCell>
-                                <TableCell className="text-green-500 font-medium text-right">
-                                    {funding.rate}%
-                                </TableCell>
+            <Card className="w-full dark:border-white/10 border-black/20">
+                {/* Header Section */}
+                <CardHeader>
+                    <div className="flex flex-row justify-between items-center">
+                        <h2 className="text-xl font-bold tracking-tight text-green-500">
+                            Highest Funding Rate
+                        </h2>
+
+                        <Select value={timeFrame} onValueChange={setTimeFrame}>
+                            <SelectTrigger className="w-32 h-9">
+                                <SelectValue placeholder="Timeframe" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="current">Current</SelectItem>
+                                <SelectItem value="4h">4h</SelectItem>
+                                <SelectItem value="12h">12h</SelectItem>
+                                <SelectItem value="24h">24h</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                </CardHeader>
+                <Separator />
+                {/* Table Section */}
+                <CardContent className="pt-0 px-2 xl:px-6">
+                    <Table>
+                        <TableHeader>
+                            <TableRow className="hover:bg-transparent border-none">
+                                <TableHead className="font-semibold">Platform</TableHead>
+                                <TableHead className="font-semibold">Market</TableHead>
+                                <TableHead className="text-right font-semibold">Rate</TableHead>
                             </TableRow>
-                        ))}
-                    </TableBody>
-                </Table>
-            </CardContent>
+                        </TableHeader>
+                        <TableBody>
+                            {highestFundingRates.map((funding) => (
+                                <TableRow
+                                    key={funding.id}
+                                    className="border-none hover:bg-transparent"
+                                >
+                                    <TableCell className="font-medium">
+                                        {funding.platform}
+                                    </TableCell>
+                                    <TableCell className="text-muted-foreground">
+                                        {funding.market}
+                                    </TableCell>
+                                    <TableCell className="text-green-500 font-medium text-right">
+                                        {funding.rate}%
+                                    </TableCell>
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                    </Table>
+                </CardContent>
 
-            {/* TODO: Implement dynamic data fetching from Drift/Hyperliquid SDKs based on the selected timeFrame */}
-            {/* TODO: Add sorting logic for the Rate column */}
-        </Card>
+                {/* TODO: Implement dynamic data fetching from Drift/Hyperliquid SDKs based on the selected timeFrame */}
+                {/* TODO: Add sorting logic for the Rate column */}
+            </Card>
+        </motion.div>
     );
 }

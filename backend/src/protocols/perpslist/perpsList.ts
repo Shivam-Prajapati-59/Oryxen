@@ -5,7 +5,11 @@ export interface PerpData {
   baseAsset: string;
 }
 
-const SUPPORTED_PROTOCOLS = ["Drift Protocol", "Hyperliquid (Futures)"];
+const SUPPORTED_PROTOCOLS = [
+  "Drift Protocol",
+  "Hyperliquid (Futures)",
+  "Flash Trade",
+];
 
 export async function getAllPerps(): Promise<PerpData[]> {
   const API_KEY = process.env.COINGECKO_API_KEY;

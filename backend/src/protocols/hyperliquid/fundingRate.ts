@@ -3,6 +3,9 @@ import type {
   MarketFundingData,
 } from "../../types/fundingRate";
 import { calculateAllTimeframes } from "../../utils/fundingRate";
+import { db } from "../../db/client";
+import { perpsTable } from "../../db/schema";
+import { and, eq } from "drizzle-orm";
 
 async function fetchFundingRatesForMarket(
   coin: string
@@ -61,9 +64,34 @@ async function fetchAllMidPrices(): Promise<Record<string, number>> {
   }
 }
 
+async function getCoins(): Promise<string[]> {
+  try {
+    const hyperliquidPerps = await db
+      .select()
+      .from(perpsTable)
+      .where(
+        and(
+          eq(perpsTable.market, "Hyperliquid (Futures)"),
+          eq(perpsTable.isActive, true)
+        )
+      );
+
+    // Return just the indexId (coin symbols) for Hyperliquid API
+    return hyperliquidPerps.map((perp) => perp.indexId);
+  } catch (error: any) {
+    console.error("Error fetching Hyperliquid coins:", error);
+    return [];
+  }
+}
+
 export async function getAllFundingRates(): Promise<MarketFundingData[]> {
-  // List of markets to fetch
-  const coins = ["BTC", "ETH", "SOL", "ARB", "AVAX", "DOGE", "MATIC", "OP"];
+  // Fetch coins from database instead of hardcoded list
+  const coins = await getCoins();
+
+  if (coins.length === 0) {
+    console.warn("No Hyperliquid perps found in database");
+    return [];
+  }
 
   // Fetch prices (won't throw if it fails)
   const prices = await fetchAllMidPrices();
