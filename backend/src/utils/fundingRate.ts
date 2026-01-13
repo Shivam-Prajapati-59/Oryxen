@@ -1,6 +1,6 @@
 import type { FundingRateProjections } from "../types/fundingRate";
 
-const HOUR_IN_YEAR = 24 * 365;
+const HOURS_PER_YEAR = 24 * 365.25; // Using 365.25 to account for leap years
 
 export const calculateAllTimeframes = (
   hourly: number
@@ -13,20 +13,22 @@ export const calculateAllTimeframes = (
     d1: hourly * 24,
     d7: hourly * 168,
     d30: hourly * 720,
-    apr: hourly * HOUR_IN_YEAR * 100, // In Percentage
+    apr: hourly * HOURS_PER_YEAR, // APR = rate × 24 × 365.25
   };
 };
 
 export const formatProjections = (projections: FundingRateProjections) => {
+  const toPct = (val: number) => val * 100;
+
   return {
-    current: `${(projections.current * 100).toFixed(6)}%`,
-    h4: `${(projections.h4 * 100).toFixed(6)}%`,
-    h8: `${(projections.h8 * 100).toFixed(6)}%`,
-    h12: `${(projections.h12 * 100).toFixed(6)}%`,
-    d1: `${(projections.d1 * 100).toFixed(4)}%`,
-    d7: `${(projections.d7 * 100).toFixed(4)}%`,
-    d30: `${(projections.d30 * 100).toFixed(2)}%`,
-    apr: `${projections.apr.toFixed(2)}%`,
+    current: `${toPct(projections.current).toFixed(6)}%`,
+    h4: `${toPct(projections.h4).toFixed(6)}%`,
+    h8: `${toPct(projections.h8).toFixed(6)}%`,
+    h12: `${toPct(projections.h12).toFixed(6)}%`,
+    d1: `${toPct(projections.d1).toFixed(6)}%`,
+    d7: `${toPct(projections.d7).toFixed(6)}%`,
+    d30: `${toPct(projections.d30).toFixed(6)}%`,
+    apr: `${toPct(projections.apr).toFixed(6)}%`,
   };
 };
 
@@ -54,4 +56,19 @@ export const normalizeFundingData = (rawDrift: any, rawHyper: any) => {
   });
 
   return [...driftData, ...hyperData];
+};
+
+export const driftFormatProjections = (projections: FundingRateProjections) => {
+  const toPct = (val: number) => val * 100;
+
+  return {
+    current: `${toPct(projections.current).toFixed(6)}%`,
+    h4: `${toPct(projections.h4).toFixed(6)}%`,
+    h8: `${toPct(projections.h8).toFixed(6)}%`,
+    h12: `${toPct(projections.h12).toFixed(6)}%`,
+    d1: `${toPct(projections.d1).toFixed(6)}%`,
+    d7: `${toPct(projections.d7).toFixed(6)}%`,
+    d30: `${toPct(projections.d30).toFixed(6)}%`,
+    apr: `${toPct(projections.apr).toFixed(6)}%`,
+  };
 };

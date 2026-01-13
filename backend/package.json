@@ -12,9 +12,10 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "@drift-labs/sdk": "^2.153.0-beta.4",
+    "@drift-labs/sdk": "^2.155.0-beta.2",
     "@neondatabase/serverless": "^1.0.2",
     "@nktkas/hyperliquid": "^0.30.2",
+    "@noble/hashes": "^1.4.0",
     "@solana/web3.js": "^1.98.4",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",

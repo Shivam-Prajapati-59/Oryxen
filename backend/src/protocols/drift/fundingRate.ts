@@ -7,7 +7,17 @@ import { calculateAllTimeframes } from "../../utils/fundingRate";
 import { db } from "../../db/client";
 import { perpsTable } from "../../db/schema";
 import { and, eq } from "drizzle-orm";
+import { FUNDING_RATE_PRECISION, PRICE_PRECISION } from "@drift-labs/sdk";
 
+/* -----------------------------------------------------
+   CONSTANTS (DRIFT PRECISION)
+----------------------------------------------------- */
+// const PRICE_PRECISION = 1e6;
+// const FUNDING_RATE_PRECISION = 1e9;
+
+/* -----------------------------------------------------
+   FETCH FUNDING RATES FOR A MARKET
+----------------------------------------------------- */
 async function fetchFundingRatesForMarket(
   marketSymbol: string
 ): Promise<DriftFundingRate[]> {
@@ -26,6 +36,9 @@ async function fetchFundingRatesForMarket(
   }
 }
 
+/* -----------------------------------------------------
+   FETCH ACTIVE DRIFT PERPS FROM DB
+----------------------------------------------------- */
 async function getCoins(): Promise<string[]> {
   try {
     const driftPerps = await db
@@ -38,16 +51,17 @@ async function getCoins(): Promise<string[]> {
         )
       );
 
-    // Return just the symbol for Drift API
     return driftPerps.map((perp) => perp.symbol);
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error fetching Drift coins:", error);
     return [];
   }
 }
 
+/* -----------------------------------------------------
+   MAIN: GET ALL FUNDING RATES (PRECISION-CORRECT)
+----------------------------------------------------- */
 export async function getAllFundingRates(): Promise<MarketFundingData[]> {
-  // Fetch markets from database
   const markets = await getCoins();
 
   if (markets.length === 0) {
@@ -57,46 +71,48 @@ export async function getAllFundingRates(): Promise<MarketFundingData[]> {
 
   const allMarketData: MarketFundingData[] = [];
 
-  // Fetch funding rates for all markets in parallel
   const results = await Promise.allSettled(
-    markets.map((marketSymbol) => fetchFundingRatesForMarket(marketSymbol))
+    markets.map((market) => fetchFundingRatesForMarket(market))
   );
 
   results.forEach((result, index) => {
-    if (result.status === "fulfilled" && result.value.length > 0) {
-      const marketSymbol = markets[index];
-      const latestRate = result.value[0];
+    if (result.status !== "fulfilled" || result.value.length === 0) return;
 
-      if (!latestRate || !marketSymbol) return;
+    const marketSymbol = markets[index];
+    // FIX: Get the LAST element (most recent) instead of first
+    const latestRate = result.value[result.value.length - 1];
+    if (!latestRate) return;
 
-      // Calculate hourly funding rate
-      const fundingRatePct =
-        parseFloat(latestRate.fundingRate) /
-        1e9 /
-        (parseFloat(latestRate.oraclePriceTwap) / 1e6);
+    const rawFundingRate = Number(latestRate.fundingRate);
+    const rawOraclePrice = Number(latestRate.oraclePriceTwap);
 
-      const oraclePrice = parseFloat(latestRate.oraclePriceTwap) / 1e6;
-      if (oraclePrice <= 0) {
-        console.error(
-          `Invalid Oracle Price for ${marketSymbol}: ${oraclePrice}`
-        );
-        return;
-      }
-
-      allMarketData.push({
-        protocol: "drift",
-        symbol: marketSymbol,
-        price: oraclePrice,
-        hourlyRate: fundingRatePct,
-        projections: calculateAllTimeframes(fundingRatePct),
-        timestamp: latestRate.slot,
-        metadata: {
-          slot: latestRate.slot,
-          rawFundingRate: latestRate.fundingRate,
-          oraclePriceTwap: oraclePrice,
-        },
-      });
+    if (rawOraclePrice === 0) {
+      console.error(`Zero oracle price for ${marketSymbol}`);
+      return;
     }
+
+    /* -------------------------------------------------
+       NORMALIZE VALUES (THIS IS THE FIX)
+    ------------------------------------------------- */
+    const fundingRate = rawFundingRate / FUNDING_RATE_PRECISION;
+    const oraclePrice = rawOraclePrice / PRICE_PRECISION;
+    const hourlyRate = fundingRate / oraclePrice;
+
+    allMarketData.push({
+      protocol: "drift",
+      symbol: marketSymbol!,
+      price: oraclePrice,
+      hourlyRate,
+      projections: calculateAllTimeframes(hourlyRate),
+      timestamp: latestRate.slot,
+      metadata: {
+        slot: latestRate.slot,
+        rawFundingRate,
+        rawOraclePrice,
+        normalizedFundingRate: fundingRate,
+        normalizedOraclePrice: oraclePrice,
+      },
+    });
   });
 
   return allMarketData;

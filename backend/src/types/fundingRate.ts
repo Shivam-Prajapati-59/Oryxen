@@ -10,7 +10,7 @@ export interface ApiResponse<T> {
 // Drift specific types
 export interface DriftFundingRate {
   slot: number;
-  fundingRate: string;
+  fundingRate: number;
   oraclePriceTwap: string;
 }
 

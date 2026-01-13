@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import { getAllFundingRates } from "../protocols/drift/fundingRate";
-import { formatProjections } from "../utils/fundingRate";
+import { driftFormatProjections } from "../utils/fundingRate";
 
 export async function getFundingRates(req: Request, res: Response) {
   try {
@@ -11,7 +11,7 @@ export async function getFundingRates(req: Request, res: Response) {
       const { projections, ...rest } = item;
       return {
         ...rest,
-        projections: formatProjections(projections),
+        projections: driftFormatProjections(projections),
       };
     });
 

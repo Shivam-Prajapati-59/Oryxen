@@ -53,7 +53,9 @@ export function usePerpsByProtocol(protocol?: string) {
     queryFn: async () => {
       const perps = await fetchPerps();
       if (!protocol) return perps;
-      return perps.filter((perp) => perp.protocol.toLowerCase().includes(protocol.toLowerCase()));
+      return perps.filter((perp) =>
+        perp.protocol.toLowerCase().includes(protocol.toLowerCase())
+      );
     },
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
