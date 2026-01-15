@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Noto_Sans, Anton } from "next/font/google";
+import { Noto_Sans, IBM_Plex_Sans } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers/provider";
 import Navbar from "@/components/layout/Navbar";
@@ -10,10 +10,10 @@ const notoSans = Noto_Sans({
   variable: "--font-noto",
 });
 
-const anton = Anton({
+const ibmPlexSans = IBM_Plex_Sans({
   subsets: ["latin"],
-  weight: "400",
-  variable: "--font-anton",
+  variable: "--font-ibm",
+  weight: ["300", "400", "500", "600", "700"],
 });
 
 export const metadata: Metadata = {
@@ -30,7 +30,7 @@ export default function RootLayout({
     <ViewTransitions>
       <html lang="en" suppressHydrationWarning>
         <body
-          className={`${notoSans.variable} ${anton.variable} antialiased`}
+          className={`${notoSans.variable} ${ibmPlexSans.variable} antialiased`}
         >
           <Providers>
             <Navbar />
