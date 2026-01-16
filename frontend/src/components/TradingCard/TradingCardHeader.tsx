@@ -41,7 +41,7 @@ const TradingCardHeader = () => {
             <div className="flex flex-col lg:flex-row border-l dark:border-white/10 border-black/20 min-w-75">
 
                 {/* ROW 1: CHANGE */}
-                <div className="flex lg:flex-col justify-center items-center px-4 py-2 border-t border-b dark:border-white/10 border-black/20 lg:border-t-0 gap-2">
+                <div className="flex lg:flex-col justify-center items-center px-4 py-2 border-t border-b dark:border-white/10 border-black/20 lg:border-t-0 gap-2 lg:border-b-0">
                     <p className="text-sm text-muted-foreground font-noto">
                         Change (24hr)
                     </p>
@@ -51,7 +51,7 @@ const TradingCardHeader = () => {
                 </div>
 
                 {/* ROW 2: FUNDING */}
-                <div className="flex lg:flex-col justify-center items-center px-4 py-2 border-b dark:border-white/10 border-black/20 lg:border-l gap-2">
+                <div className="flex lg:flex-col justify-center items-center px-4 py-2 border-b dark:border-white/10 border-black/20 lg:border-l gap-2 lg:border-b-0">
                     <p className="text-sm text-muted-foreground font-noto">
                         OI-Weighted Funding (1hr)
                     </p>

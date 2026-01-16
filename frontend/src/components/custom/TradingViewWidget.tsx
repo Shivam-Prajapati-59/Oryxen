@@ -75,7 +75,7 @@ const TradingViewWidget: React.FC<TradingViewWidgetProps> = ({
         }
     }, [symbol, resolution, resolvedTheme]);
 
-    return <div id="tradingview" className="w-full h-screen" />;
+    return <div id="tradingview" className="w-full h-full" />;
 };
 
 export default TradingViewWidget;
