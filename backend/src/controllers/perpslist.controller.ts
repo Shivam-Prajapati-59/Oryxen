@@ -1,10 +1,9 @@
 import type { Request, Response } from "express";
-import { getFundingRatesByProtocol } from "../db/fundingRateService";
-import { getAllFundingRates } from "../services/funding-rate/hyperLiquidFundingRate";
+import { getAllFundingRatesFromDB } from "../db/fundingRateService";
 
-export async function getContractsFundingRates(req: Request, res: Response) {
+export async function getAllFundingRates(req: Request, res: Response) {
   try {
-    const data = await getAllFundingRates();
+    const data = await getAllFundingRatesFromDB();
 
     res.json({
       success: true,

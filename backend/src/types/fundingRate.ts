@@ -1,32 +1,16 @@
-// Common response structure
-export interface ApiResponse<T> {
-  success: boolean;
-  data: T;
-  timestamp: number;
-  count?: number;
-  error?: string;
+// Drift FundingRate Response
+export interface FundingRateApiResponse {
+  fundingRates: FundingRate[];
 }
 
-// Drift specific types
-export interface DriftFundingRate {
+export interface FundingRate {
   slot: number;
-  fundingRate: number;
-  oraclePriceTwap: string;
-}
-
-export interface DriftFundingRateResponse {
-  fundingRates: DriftFundingRate[];
-}
-
-// Hyperliquid specific types
-export interface HyperliquidFundingRate {
-  coin: string;
   fundingRate: string;
-  premium: string;
-  time: number;
+  oraclePriceTwap: string;
+  symbol?: string;
+  marketIndex?: number;
 }
 
-// Funding rate projections for different timeframes
 export interface FundingRateProjections {
   current: number;
   h4: number;
@@ -38,13 +22,15 @@ export interface FundingRateProjections {
   apr: number; // APR in percentage
 }
 
-// Normalized market data (common format for all protocols)
 export interface MarketFundingData {
   protocol: string;
   symbol: string;
   price: number | null;
-  hourlyRate: number;
+  imageUrl: string;
+  fundingRate: number;
   projections: FundingRateProjections;
   timestamp: number;
   metadata?: Record<string, any>;
 }
+
+//

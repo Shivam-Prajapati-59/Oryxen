@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { getContractsFundingRates } from "../controllers/hyperliquid.controller";
+import { getContractsFundingRates } from "../controllers/drfit.controller";
 
 const router = Router();
 
