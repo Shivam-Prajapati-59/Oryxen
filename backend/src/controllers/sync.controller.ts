@@ -1,7 +1,10 @@
 import type { Request, Response } from "express";
 import { getAllFundingRates as getDriftRates } from "../services/funding-rate/drfitFundingRate";
 import { getAllFundingRates as getHyperliquidRates } from "../services/funding-rate/hyperLiquidFundingRate";
-import { upsertFundingRates } from "../db/fundingRateService";
+import {
+  batchUpsertFundingRates,
+  getRecordCount,
+} from "../db/fundingRateService";
 import type { MarketFundingData } from "../types/fundingRate";
 
 /* -------------------------------------------------------------------------- */
@@ -51,13 +54,20 @@ export async function syncAllProtocols(req: Request, res: Response) {
       console.error("❌ Hyperliquid fetch failed:", hyperliquidData.reason);
     }
 
-    // Save to database
+    // Save to database using batch upsert (more efficient)
     if (allData.length > 0) {
-      await upsertFundingRates(allData);
+      await batchUpsertFundingRates(allData);
       console.log(
         `✅ Synced ${allData.length} total funding rates to database`,
       );
     }
+
+    // Get final counts from DB
+    const dbCounts = {
+      drift: await getRecordCount("drift"),
+      hyperliquid: await getRecordCount("hyperliquid"),
+      total: await getRecordCount(),
+    };
 
     const duration = Date.now() - startTime;
 
@@ -65,7 +75,8 @@ export async function syncAllProtocols(req: Request, res: Response) {
       success: true,
       message: "Sync completed",
       results,
-      totalCount: allData.length,
+      totalSynced: allData.length,
+      dbCounts,
       duration: `${duration}ms`,
       timestamp: Date.now(),
     });
@@ -94,14 +105,16 @@ export async function syncDrift(req: Request, res: Response) {
     console.log("🔄 Syncing Drift protocol...");
 
     const data = await getDriftRates();
-    await upsertFundingRates(data);
+    await batchUpsertFundingRates(data);
 
+    const dbCount = await getRecordCount("drift");
     const duration = Date.now() - startTime;
 
     res.json({
       success: true,
       protocol: "drift",
-      count: data.length,
+      synced: data.length,
+      dbCount,
       duration: `${duration}ms`,
       timestamp: Date.now(),
     });
@@ -126,14 +139,16 @@ export async function syncHyperliquid(req: Request, res: Response) {
     console.log("🔄 Syncing Hyperliquid protocol...");
 
     const data = await getHyperliquidRates();
-    await upsertFundingRates(data);
+    await batchUpsertFundingRates(data);
 
+    const dbCount = await getRecordCount("hyperliquid");
     const duration = Date.now() - startTime;
 
     res.json({
       success: true,
       protocol: "hyperliquid",
-      count: data.length,
+      synced: data.length,
+      dbCount,
       duration: `${duration}ms`,
       timestamp: Date.now(),
     });

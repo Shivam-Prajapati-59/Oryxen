@@ -83,7 +83,7 @@ async function fetchFundingRatesForMarket(
       body: JSON.stringify({
         type: "fundingHistory",
         coin: coin,
-        startTime: Date.now() - 24 * 60 * 60 * 1000, // last 24 hours
+        startTime: Date.now() - 2 * 60 * 60 * 1000, // last 2 hours
       }),
     });
 
