@@ -28,6 +28,7 @@ export interface MarketFundingData {
   price: number | null;
   imageUrl: string;
   fundingRate: number;
+  maxleverage: number;
   projections: FundingRateProjections;
   timestamp: number;
   metadata?: Record<string, any>;

@@ -26,6 +26,18 @@ interface DriftApiResponse {
   contracts: DriftContract[];
 }
 
+interface DriftMarketStats {
+  marketIndex: number;
+  symbol: string;
+  marginRatioInitial: number;
+  marginRatioMaintenance: number;
+  maxLeverage?: number;
+}
+
+interface DriftStatsResponse {
+  markets: DriftMarketStats[];
+}
+
 /* -------------------------------------------------------------------------- */
 /*                                 Validators                                 */
 /* -------------------------------------------------------------------------- */
@@ -61,7 +73,10 @@ function getTokenImageUrl(tickerId: string): string {
   return `https://drift-public.s3.eu-central-1.amazonaws.com/assets/icons/markets/${symbol}.svg`;
 }
 
-function transformContract(contract: DriftContract): MarketFundingData | null {
+function transformContract(
+  contract: DriftContract,
+  maxLeverageMap: Map<string, number>,
+): MarketFundingData | null {
   if (!isValidContract(contract)) return null;
 
   const fundingRate = parseNumber(
@@ -75,12 +90,15 @@ function transformContract(contract: DriftContract): MarketFundingData | null {
     return null;
   }
 
+  const maxLeverage = maxLeverageMap.get(contract.ticker_id) || 0;
+
   return {
     protocol: "drift",
     symbol: contract.ticker_id,
     price,
     imageUrl: getTokenImageUrl(contract.ticker_id),
     fundingRate,
+    maxleverage: maxLeverage,
     projections: calculateDriftProjections(fundingRate),
     timestamp: Date.now(),
 
@@ -100,6 +118,45 @@ function transformContract(contract: DriftContract): MarketFundingData | null {
 }
 
 /* -------------------------------------------------------------------------- */
+/*                            Max Leverage Fetcher                            */
+/* -------------------------------------------------------------------------- */
+
+async function getMaxLeverageMap(): Promise<Map<string, number>> {
+  const url = "https://data.api.drift.trade/stats/markets";
+  const leverageMap = new Map<string, number>();
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    const data = (await res.json()) as DriftStatsResponse;
+
+    if (!Array.isArray(data.markets)) {
+      console.warn("Invalid markets data structure");
+      return leverageMap;
+    }
+
+    // Build map of symbol to max leverage
+    for (const market of data.markets) {
+      if (market.symbol && market.marginRatioInitial) {
+        // Calculate max leverage from margin ratio
+        // Max Leverage = 1 / Initial Margin Ratio
+        const maxLeverage = Math.floor(1 / market.marginRatioInitial);
+        leverageMap.set(market.symbol, maxLeverage);
+      }
+    }
+
+    console.log(
+      `✅ Fetched max leverage for ${leverageMap.size} Drift markets`,
+    );
+    return leverageMap;
+  } catch (err) {
+    console.error("Failed to fetch max leverage:", err);
+    return leverageMap;
+  }
+}
+
+/* -------------------------------------------------------------------------- */
 /*                                   Fetcher                                  */
 /* -------------------------------------------------------------------------- */
 
@@ -107,14 +164,19 @@ export async function getAllFundingRates(): Promise<MarketFundingData[]> {
   const url = "https://data.api.drift.trade/contracts";
 
   try {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    // Fetch both contracts and max leverage in parallel
+    const [contractsRes, maxLeverageMap] = await Promise.all([
+      fetch(url),
+      getMaxLeverageMap(),
+    ]);
 
-    const data = (await res.json()) as DriftApiResponse;
+    if (!contractsRes.ok) throw new Error(`HTTP ${contractsRes.status}`);
+
+    const data = (await contractsRes.json()) as DriftApiResponse;
     if (!Array.isArray(data.contracts)) return [];
 
     return data.contracts
-      .map(transformContract)
+      .map((contract) => transformContract(contract, maxLeverageMap))
       .filter((v): v is MarketFundingData => v !== null);
   } catch (err) {
     console.error("Failed to fetch Drift funding rates:", err);

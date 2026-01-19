@@ -21,6 +21,9 @@ export const marketFundingData = pgTable(
       scale: 12,
     }).notNull(),
 
+    // Storing MAX leverage
+    maxLeverage: varchar("max_leverage", { length: 20 }),
+
     // Storing the complex objects as JSONB for flexibility
     projections: jsonb("projections").notNull(),
     metadata: jsonb("metadata").notNull(),
