@@ -8,7 +8,7 @@ export const calculateDriftProjections = (
   hourly: number,
 ): FundingRateProjections => {
   const dailyRate = hourly * 24;
-  const apr = dailyRate * 365 * 100; // APR in percentage
+  const apr = dailyRate * 365; // APR in percentage
 
   return {
     current: hourly,

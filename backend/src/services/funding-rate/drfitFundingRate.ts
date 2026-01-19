@@ -9,7 +9,6 @@ interface DriftContract {
   ticker_id: string;
   funding_rate: string;
   last_price: string;
-
   contract_index?: number;
   base_currency?: string;
   quote_currency?: string;
@@ -23,18 +22,25 @@ interface DriftContract {
 }
 
 interface DriftApiResponse {
+  success?: boolean;
   contracts: DriftContract[];
 }
 
 interface DriftMarketStats {
-  marketIndex: number;
   symbol: string;
-  marginRatioInitial: number;
-  marginRatioMaintenance: number;
-  maxLeverage?: number;
+  marketIndex: number;
+  marketType: string;
+  limits: {
+    leverage: {
+      min: number;
+      max: number;
+    };
+  };
+  marginRatioInitial?: number; // Fallback
 }
 
 interface DriftStatsResponse {
+  success?: boolean;
   markets: DriftMarketStats[];
 }
 
@@ -79,29 +85,30 @@ function transformContract(
 ): MarketFundingData | null {
   if (!isValidContract(contract)) return null;
 
+  const ticker = contract.ticker_id.toUpperCase();
   const fundingRate = parseNumber(
     contract.funding_rate,
     "funding rate",
-    contract.ticker_id,
+    ticker,
   );
-  const price = parseNumber(contract.last_price, "price", contract.ticker_id);
+  const price = parseNumber(contract.last_price, "price", ticker);
 
   if (fundingRate === null || price === null || Math.abs(price) < 1e-10) {
     return null;
   }
 
-  const maxLeverage = maxLeverageMap.get(contract.ticker_id) || 0;
+  // Attempt to get leverage using the full ticker (e.g., SOL-PERP)
+  const maxLeverage = maxLeverageMap.get(ticker) || 0;
 
   return {
     protocol: "drift",
-    symbol: contract.ticker_id,
+    symbol: ticker,
     price,
-    imageUrl: getTokenImageUrl(contract.ticker_id),
+    imageUrl: getTokenImageUrl(ticker),
     fundingRate,
     maxleverage: maxLeverage,
     projections: calculateDriftProjections(fundingRate),
     timestamp: Date.now(),
-
     metadata: {
       contractIndex: contract.contract_index,
       baseCurrency: contract.base_currency,
@@ -131,18 +138,33 @@ async function getMaxLeverageMap(): Promise<Map<string, number>> {
 
     const data = (await res.json()) as DriftStatsResponse;
 
-    if (!Array.isArray(data.markets)) {
-      console.warn("Invalid markets data structure");
+    if (!data.markets || !Array.isArray(data.markets)) {
+      console.warn("Invalid markets data structure from Drift stats");
       return leverageMap;
     }
 
-    // Build map of symbol to max leverage
     for (const market of data.markets) {
-      if (market.symbol && market.marginRatioInitial) {
-        // Calculate max leverage from margin ratio
-        // Max Leverage = 1 / Initial Margin Ratio
-        const maxLeverage = Math.floor(1 / market.marginRatioInitial);
-        leverageMap.set(market.symbol, maxLeverage);
+      if (!market.symbol) continue;
+
+      const symbol = market.symbol.toUpperCase();
+      let maxLeverage = 0;
+
+      // 1. Primary: Use the explicit limits field from your JSON
+      if (market.limits?.leverage?.max) {
+        maxLeverage = market.limits.leverage.max;
+      }
+      // 2. Fallback: Calculate from initial margin ratio if limits are missing
+      else if (market.marginRatioInitial && market.marginRatioInitial > 0) {
+        // Handle potential scaling (e.g., 500 for 5%)
+        const ratio =
+          market.marginRatioInitial > 1
+            ? market.marginRatioInitial / 10000
+            : market.marginRatioInitial;
+        maxLeverage = Math.floor(1 / ratio);
+      }
+
+      if (maxLeverage > 0) {
+        leverageMap.set(symbol, maxLeverage);
       }
     }
 
@@ -151,7 +173,7 @@ async function getMaxLeverageMap(): Promise<Map<string, number>> {
     );
     return leverageMap;
   } catch (err) {
-    console.error("Failed to fetch max leverage:", err);
+    console.error("Failed to fetch Drift max leverage:", err);
     return leverageMap;
   }
 }
@@ -164,7 +186,7 @@ export async function getAllFundingRates(): Promise<MarketFundingData[]> {
   const url = "https://data.api.drift.trade/contracts";
 
   try {
-    // Fetch both contracts and max leverage in parallel
+    // Fetch both contracts and leverage stats in parallel
     const [contractsRes, maxLeverageMap] = await Promise.all([
       fetch(url),
       getMaxLeverageMap(),
@@ -173,11 +195,18 @@ export async function getAllFundingRates(): Promise<MarketFundingData[]> {
     if (!contractsRes.ok) throw new Error(`HTTP ${contractsRes.status}`);
 
     const data = (await contractsRes.json()) as DriftApiResponse;
-    if (!Array.isArray(data.contracts)) return [];
 
-    return data.contracts
+    if (!data.contracts || !Array.isArray(data.contracts)) {
+      console.warn("No contracts found in Drift response");
+      return [];
+    }
+
+    const results = data.contracts
       .map((contract) => transformContract(contract, maxLeverageMap))
       .filter((v): v is MarketFundingData => v !== null);
+
+    console.log(`✅ Fetched ${results.length} Drift funding rates`);
+    return results;
   } catch (err) {
     console.error("Failed to fetch Drift funding rates:", err);
     return [];

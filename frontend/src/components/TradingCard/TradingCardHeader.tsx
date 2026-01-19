@@ -1,13 +1,18 @@
-import React from "react";
+"use client";
 import { BadgeCheck, ChevronDown } from "lucide-react";
 
-const TradingCardHeader = () => {
+interface TradingCardHeaderProps {
+    isOpen: boolean;
+    setIsOpen: (open: boolean) => void;
+}
+
+const TradingCardHeader = ({ isOpen, setIsOpen }: TradingCardHeaderProps) => {
     return (
         <div className="flex flex-col md:flex-row items-stretch justify-between border dark:border-white/10 border-black/20">
 
             {/* LEFT SECTION: MARKET & PRICE */}
-            <div className="flex flex-col lg:flex-row lg:justify-between justify-center p-5 gap-1">
-                <div className="flex items-center gap-3">
+            <div className="flex flex-col lg:flex-row lg:justify-between justify-center p-5 gap-1 lg:flex-1">
+                <div className="flex items-center gap-3 relative">
                     {/* Solana Logo Placeholder */}
                     <div className="w-6 h-6 bg-linear-to-tr from-[#9945FF] to-[#14F195] rounded-sm shrink-0" />
 
@@ -21,13 +26,15 @@ const TradingCardHeader = () => {
                         100x
                     </span>
 
-                    <div className="p-1 rounded-full bg-accent cursor-pointer hover:bg-accent/80 transition-colors">
+                    <div
+                        className="p-1 rounded-full bg-accent cursor-pointer hover:bg-accent/80 transition-colors"
+                        onClick={() => setIsOpen(!isOpen)}
+                    >
                         <ChevronDown className="w-4 h-4 text-muted-foreground" />
                     </div>
                 </div>
-
                 {/* PRICE */}
-                <div className="mt-1">
+                <div className="lg:ml-auto lg:text-right">
                     <h2 className="text-2xl lg:text-3xl text-emerald-500 dark:text-emerald-400 font-ibm">
                         $145.2809
                     </h2>

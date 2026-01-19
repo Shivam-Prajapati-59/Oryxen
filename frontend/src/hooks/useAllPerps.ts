@@ -13,6 +13,7 @@ export interface PerpBasicInfo {
   protocol: string;
   symbol: string;
   imageUrl: string;
+  maxleverage: number;
 }
 
 export interface PerpDataResponse {
@@ -44,6 +45,7 @@ async function fetchAllPerps(): Promise<PerpBasicInfo[]> {
     protocol: perp.protocol,
     symbol: perp.symbol,
     imageUrl: perp.imageUrl,
+    maxleverage: perp.maxleverage,
   }));
 }
 
@@ -84,6 +86,7 @@ async function fetchPerpsByProtocol(
     protocol: perp.protocol,
     symbol: perp.symbol,
     imageUrl: perp.imageUrl,
+    maxleverage: perp.maxleverage,
   }));
 }
 
@@ -159,16 +162,13 @@ export function useUniqueSymbols() {
 export function useGroupedByProtocol() {
   const { data, ...rest } = useAllPerps();
 
-  const grouped = data?.reduce(
-    (acc, perp) => {
-      if (!acc[perp.protocol]) {
-        acc[perp.protocol] = [];
-      }
-      acc[perp.protocol].push(perp);
-      return acc;
-    },
-    {} as Record<string, PerpBasicInfo[]>,
-  );
+  const grouped = data?.reduce((acc, perp) => {
+    if (!acc[perp.protocol]) {
+      acc[perp.protocol] = [];
+    }
+    acc[perp.protocol].push(perp);
+    return acc;
+  }, {} as Record<string, PerpBasicInfo[]>);
 
   return {
     data: grouped,
