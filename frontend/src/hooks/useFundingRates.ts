@@ -41,13 +41,15 @@ export interface FundingRateResponse {
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
 
 async function fetchFundingRates(
-  protocol: string
+  protocol: string,
 ): Promise<FundingRateResponse> {
-  const response = await fetch(`${API_BASE_URL}/api/${protocol}/funding-rates`);
+  const response = await fetch(
+    `${API_BASE_URL}/api/${protocol}/funding-rates/`,
+  );
 
   if (!response.ok) {
     throw new Error(
-      `Failed to fetch funding rates for ${protocol}: ${response.statusText}`
+      `Failed to fetch funding rates for ${protocol}: ${response.statusText}`,
     );
   }
 

@@ -1,6 +1,7 @@
 import express from "express";
 import routes from "./src/routes/index";
 import "dotenv/config";
+import { WebSocketManager } from "./src/services/websocket/wsManager";
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -98,8 +99,15 @@ app.use(
 /*                                Start Server                                */
 /* -------------------------------------------------------------------------- */
 
+const wsManager = new WebSocketManager();
+
 app.listen(PORT, () => {
   console.log(`\n🚀 Server is running on http://localhost:${PORT}`);
+
+  // Start WebSocket connections
+  wsManager.start();
+  console.log(`📡 WebSocket Manager started`);
+
   console.log(`📊 API Endpoints:`);
   console.log(`\n   📖 Read (from Database):`);
   console.log(`   - All: http://localhost:${PORT}/api/funding-rates`);
@@ -114,4 +122,17 @@ app.listen(PORT, () => {
     `   - Hyperliquid: POST http://localhost:${PORT}/api/sync/hyperliquid`,
   );
   console.log(`\n   ❤️  Health: http://localhost:${PORT}/api/health\n`);
+});
+
+// Graceful shutdown
+process.on("SIGINT", () => {
+  console.log("\n🛑 Shutting down gracefully...");
+  wsManager.stop();
+  process.exit(0);
+});
+
+process.on("SIGTERM", () => {
+  console.log("\n🛑 Shutting down gracefully...");
+  wsManager.stop();
+  process.exit(0);
 });

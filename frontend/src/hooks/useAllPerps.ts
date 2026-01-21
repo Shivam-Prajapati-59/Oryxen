@@ -28,7 +28,7 @@ export interface PerpDataResponse {
 /* -------------------------------------------------------------------------- */
 
 async function fetchAllPerps(): Promise<PerpBasicInfo[]> {
-  const response = await fetch(`${API_BASE_URL}/api/funding-rates`);
+  const response = await fetch(`${API_BASE_URL}/api/funding-rates/unique`);
 
   if (!response.ok) {
     throw new Error("Failed to fetch funding rates from DB");

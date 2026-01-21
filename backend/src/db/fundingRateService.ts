@@ -197,6 +197,43 @@ export async function getFundingRateBySymbol(
   }
 }
 
+export async function getUniquePerps(): Promise<MarketFundingData[]> {
+  try {
+    // Get all records ordered by protocol to ensure consistent selection
+    const results = await db
+      .select()
+      .from(marketFundingData)
+      .orderBy(marketFundingData.protocol);
+
+    // Use a Map to keep only first occurrence of each symbol
+    const uniquePerpsMap = new Map<string, MarketFundingData>();
+
+    results.forEach((record) => {
+      const symbol = record.symbol;
+
+      // Only add if this symbol hasn't been seen before
+      if (!uniquePerpsMap.has(symbol)) {
+        uniquePerpsMap.set(symbol, {
+          protocol: record.protocol,
+          symbol: record.symbol,
+          price: record.price ? Number(record.price) : null,
+          imageUrl: record.imageUrl ?? "",
+          fundingRate: Number(record.fundingRate),
+          maxleverage: record.maxLeverage ? Number(record.maxLeverage) : 0,
+          projections: record.projections as any,
+          timestamp: record.sourceTimestamp?.getTime() ?? Date.now(),
+          metadata: record.metadata as any,
+        });
+      }
+    });
+
+    return Array.from(uniquePerpsMap.values());
+  } catch (error) {
+    console.error("❌ Error fetching unique perps from DB:", error);
+    return [];
+  }
+}
+
 /* -------------------------------------------------------------------------- */
 /*                            Stats & Management                              */
 /* -------------------------------------------------------------------------- */
