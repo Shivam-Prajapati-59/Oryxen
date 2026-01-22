@@ -1,45 +1,80 @@
 "use client";
 import { BadgeCheck, ChevronDown } from "lucide-react";
+import { usePriceFeed } from "@/hooks/usePriceFeed";
+import { PerpBasicInfo } from "@/hooks/useAllPerps";
+import Image from "next/image";
+import { useMemo, useState, useEffect } from "react";
 
 interface TradingCardHeaderProps {
     isOpen: boolean;
     setIsOpen: (open: boolean) => void;
+    selectedMarket: PerpBasicInfo;
 }
 
-const TradingCardHeader = ({ isOpen, setIsOpen }: TradingCardHeaderProps) => {
+const TradingCardHeader = ({ isOpen, setIsOpen, selectedMarket }: TradingCardHeaderProps) => {
+    const baseSymbol = selectedMarket.symbol.replace(/-PERP$/i, "");
+    const { prices, isConnected } = usePriceFeed([baseSymbol]);
+    const [imageError, setImageError] = useState(false);
+
+    // Reset image error when market changes
+    useEffect(() => {
+        setImageError(false);
+    }, [selectedMarket]);
+
+    const currentPrice = prices[baseSymbol];
+
+    const formatPrice = (price: number | null | undefined): string => {
+        if (!price || isNaN(price)) return "-";
+        if (price >= 1000) return `$${price.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}`;
+        if (price >= 1) return `$${price.toFixed(4)}`;
+        return `$${price.toFixed(6)}`;
+    };
+
     return (
         <div className="flex flex-col md:flex-row items-stretch justify-between border dark:border-white/10 border-black/20">
 
             {/* LEFT SECTION: MARKET & PRICE */}
             <div className="flex flex-col lg:flex-row lg:justify-between justify-center p-5 gap-1 lg:flex-1">
                 <div className="flex items-center gap-3 relative">
-                    {/* Solana Logo Placeholder */}
-                    <div className="w-6 h-6 bg-linear-to-tr from-[#9945FF] to-[#14F195] rounded-sm shrink-0" />
+                    {/* Market Logo */}
+                    {selectedMarket.imageUrl && !imageError ? (
+                        <Image
+                            src={selectedMarket.imageUrl}
+                            alt={selectedMarket.symbol}
+                            width={24}
+                            height={24}
+                            className="rounded-sm shrink-0"
+                            onError={() => setImageError(true)}
+                        />
+                    ) : (
+                        <div className="w-6 h-6 bg-gradient-to-tr from-[#9945FF] to-[#14F195] rounded-sm shrink-0" />
+                    )}
 
                     <h2 className="text-xl font-ibm font-semibold tracking-wider">
-                        SOL-PERP
+                        {selectedMarket.symbol}
                     </h2>
 
                     <BadgeCheck className="w-5 h-5 text-emerald-400" />
 
                     <span className="px-2 py-0.5 text-[10px] font-bold rounded-full border border-emerald-500/20 bg-emerald-500/10 text-emerald-400">
-                        100x
+                        {selectedMarket.maxleverage}x
                     </span>
 
                     <div
                         className="p-1 rounded-full bg-accent cursor-pointer hover:bg-accent/80 transition-colors"
                         onClick={() => setIsOpen(!isOpen)}
                     >
-                        <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                        <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${isOpen ? 'rotate-180' : ''}`} />
                     </div>
                 </div>
+
                 {/* PRICE */}
                 <div className="lg:ml-auto lg:text-right">
-                    <h2 className="text-2xl lg:text-3xl text-emerald-500 dark:text-emerald-400 font-ibm">
-                        $145.2809
+                    <h2 className="text-2xl lg:text-3xl text-emerald-500 dark:text-emerald-400 font-ibm font-mono">
+                        {formatPrice(currentPrice)}
                     </h2>
                     <p className="hidden sm:block text-sm tracking-wide text-muted-foreground font-noto">
-                        Price
+                        {currentPrice ? "Live Price" : "Price"}
                     </p>
                 </div>
             </div>
@@ -52,8 +87,8 @@ const TradingCardHeader = ({ isOpen, setIsOpen }: TradingCardHeaderProps) => {
                     <p className="text-sm text-muted-foreground font-noto">
                         Change (24hr)
                     </p>
-                    <h3 className="text-sm font-medium text-emerald-400 font-ibm">
-                        0.59%
+                    <h3 className="text-sm font-medium text-muted-foreground font-ibm">
+                        -
                     </h3>
                 </div>
 
@@ -62,8 +97,8 @@ const TradingCardHeader = ({ isOpen, setIsOpen }: TradingCardHeaderProps) => {
                     <p className="text-sm text-muted-foreground font-noto">
                         OI-Weighted Funding (1hr)
                     </p>
-                    <h3 className="text-sm font-medium text-foreground font-ibm">
-                        0.00125%
+                    <h3 className="text-sm font-medium text-muted-foreground font-ibm">
+                        -
                     </h3>
                 </div>
 
@@ -72,8 +107,8 @@ const TradingCardHeader = ({ isOpen, setIsOpen }: TradingCardHeaderProps) => {
                     <p className="text-sm text-muted-foreground font-noto">
                         Total OI Contracts
                     </p>
-                    <h3 className="text-sm font-medium text-foreground font-ibm">
-                        7,053,889.7822
+                    <h3 className="text-sm font-medium text-muted-foreground font-ibm">
+                        -
                     </h3>
                 </div>
 

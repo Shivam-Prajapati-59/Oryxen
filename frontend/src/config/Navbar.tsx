@@ -18,20 +18,12 @@ export const navbarConfig = {
             href: "/perps",
         },
         {
-            label: "Spot",
-            href: "/spot",
-        },
-        {
             label: "Liquidation",
             href: "/liquidation",
         },
         {
             label: "Funding Rate",
             href: "/funding-rate",
-        },
-        {
-            label: "Points",
-            href: "/points",
         },
         {
             label: "Leaderboard",

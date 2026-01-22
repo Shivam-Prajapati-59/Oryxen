@@ -58,26 +58,6 @@ export default function Navbar() {
 
                     {/* Right Side - Actions */}
                     <div className="flex items-center gap-2">
-                        {/* Search Button */}
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            aria-label="Search"
-                            onClick={() => setSearchOpen(true)}
-                            className="group flex items-center gap-2 text-zinc-500 hover:text-zinc-700
-                 dark:text-zinc-400 dark:hover:text-zinc-300 py-4"
-                        >
-                            <Search className="h-4 w-4" />
-                            <span className="hidden sm:inline">Search</span>
-
-                            <kbd className="hidden sm:flex items-center gap-0.5 rounded border
-                     border-zinc-300 bg-zinc-100 px-1.5 py-0.5
-                     font-mono text-[10px]
-                     dark:border-zinc-700 dark:bg-zinc-800">
-                                <span>⌘</span>K
-                            </kbd>
-                        </Button>
-
                         {/* Theme Toggle */}
                         <ThemeToggleButton />
                         <Button className='py-4'>
