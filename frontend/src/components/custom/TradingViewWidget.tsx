@@ -69,7 +69,6 @@ const TradingViewWidget: React.FC<TradingViewWidgetProps> = ({
                     drawings_access: { type: 'all', tools: [{ name: "Regression Trend" }] }, // Optional: specific tools
                     hide_side_toolbar: false,      // Shows the left drawing toolbar
                     withdateranges: true,          // Shows the bottom range selector (1D, 5D, 1M, etc.)
-
                 });
             }
         }

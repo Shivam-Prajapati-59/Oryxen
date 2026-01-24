@@ -21,12 +21,12 @@ export default function Navbar() {
 
     return (
         <>
-            <Container className="sticky top-0 z-20 py-4 px-16 backdrop-blur-sm border-b max-w-none! ">
-                <div className="flex items-center justify-between">
+            <Container className="sticky top-0 z-20 backdrop-blur-sm ">
+                <div className="flex items-center justify-between py-4 px-6">
                     {/* Left Side - Logo + Nav Links */}
                     <div className="flex items-center md:gap-4 gap-8">
                         {/* Logo */}
-                        <Link href="/" className="flex items-center dark:bg-white rounded-lg">
+                        <Link href="/" className="flex items-cente">
                             <Image
                                 src={navbarConfig.logo.src}
                                 alt={navbarConfig.logo.alt}

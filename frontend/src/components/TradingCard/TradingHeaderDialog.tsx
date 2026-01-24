@@ -143,7 +143,7 @@ const TradingHeaderDialog = ({ onClose, onSelectMarket }: TradingHeaderDialogPro
                                 <div
                                     key={`${perp.protocol}-${perp.symbol}`}
                                     onClick={() => handleMarketClick(perp)}
-                                    className="absolute left-0 right-0 grid grid-cols-[1.5fr_1fr_0.8fr] gap-4 items-center px-6 py-4 hover:bg-emerald-500/[0.03] active:bg-emerald-500/[0.06] cursor-pointer transition-colors group border-b border-white/5"
+                                    className="absolute left-0 right-0 grid grid-cols-[1.5fr_1fr_0.8fr] gap-4 items-center px-6 py-4 hover:bg-emerald-500/3 active:bg-emerald-500/6 cursor-pointer transition-colors group border-b border-white/5"
                                     style={{ top: `${absoluteIndex * ITEM_HEIGHT}px`, height: `${ITEM_HEIGHT}px` }}
                                 >
                                     {/* Asset Info */}

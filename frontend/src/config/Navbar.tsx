@@ -6,10 +6,10 @@ export interface NavItem {
 
 export const navbarConfig = {
     logo: {
-        src: "/globe.svg",
+        src: "/oryx2.webp",
         alt: "logo",
-        width: 25,
-        height: 25,
+        width: 32,
+        height: 32,
     },
 
     navItems: [

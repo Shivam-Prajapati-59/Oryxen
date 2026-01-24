@@ -60,7 +60,7 @@ const TradingCard = () => {
                 </div>
 
                 {/* RIGHT COLUMN - ORDER PANEL */}
-                <div className="xl:sticky xl:top-4 h-fit">
+                <div className="xl:sticky xl:top-4 h-full">
                     <TradingOrderPanel />
                 </div>
             </div>
