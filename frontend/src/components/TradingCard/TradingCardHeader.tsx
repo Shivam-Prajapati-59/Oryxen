@@ -3,7 +3,7 @@ import { BadgeCheck, ChevronDown } from "lucide-react";
 import { usePriceFeed } from "@/hooks/usePriceFeed";
 import { PerpBasicInfo } from "@/hooks/useAllPerps";
 import Image from "next/image";
-import { useMemo, useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 
 interface TradingCardHeaderProps {
     isOpen: boolean;
@@ -70,7 +70,7 @@ const TradingCardHeader = ({ isOpen, setIsOpen, selectedMarket }: TradingCardHea
 
                 {/* PRICE */}
                 <div className="lg:ml-auto lg:text-right">
-                    <h2 className="text-2xl lg:text-3xl text-emerald-500 dark:text-emerald-400 font-ibm font-mono">
+                    <h2 className="text-2xl lg:text-3xl text-emerald-500 dark:text-emerald-400 font-mono">
                         {formatPrice(currentPrice)}
                     </h2>
                     <p className="hidden sm:block text-sm tracking-wide text-muted-foreground font-noto">

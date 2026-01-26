@@ -4,10 +4,26 @@ import React, { useState } from "react";
 import { ChevronDown, Settings } from "lucide-react";
 import { Button } from "../ui/button";
 import { Separator } from "../ui/separator";
+import { usePriceFeed } from "@/hooks/usePriceFeed";
+import { Input } from "../ui/input";
 
-const TradingOrderPanel = () => {
+interface OrderPanelProps {
+    baseSymbol: string
+}
+
+const TradingOrderPanel = ({ baseSymbol }: OrderPanelProps) => {
     const [orderType, setOrderType] = useState<"market" | "limit">("market");
     const [leverage, setLeverage] = useState(2);
+    const { prices, isConnected } = usePriceFeed([baseSymbol]);
+
+    const currentPrice = prices[baseSymbol];
+
+    const formatPrice = (price: number | null | undefined): string => {
+        if (!price || isNaN(price)) return "-";
+        if (price >= 1000) return `$${price.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}`;
+        if (price >= 1) return `$${price.toFixed(4)}`;
+        return `$${price.toFixed(6)}`;
+    };
 
     return (
         <div className="w-full space-y-4 text-sm border p-2">
@@ -53,24 +69,36 @@ const TradingOrderPanel = () => {
 
                 <div className="space-y-1">
                     <span className="text-xs text-muted-foreground">Market Price</span>
-                    <div className="text-lg font-medium text-foreground">$142.9977</div>
+                    <div className="text-lg font-medium text-foreground font-ibm">{formatPrice(currentPrice)}</div>
                 </div>
             </div>
 
             <Separator />
 
             {/* SIZE */}
-            <div className="space-y-2">
-                <span className="text-md text-foreground">Size</span>
+            <div className="space-y-1">
+                {/* Label */}
+                <span className="text-sm text-muted-foreground">Size</span>
 
-                <div className="flex items-center justify-between h-9 border px-3">
-                    <button className="flex items-center gap-1 text-xs text-foreground hover:text-muted-foreground transition-colors">
-                        SOL <ChevronDown className="h-4 w-4" />
-                    </button>
+                {/* Main Row */}
+                <div className="flex items-center justify-between py-2">
+                    {/* Value */}
+                    <Input
+                        type="number"
+                        defaultValue={11}
+                        className="w-full bg-transparent text-lg font-medium border  dark:border-white/10 border-black/20 py-0.5"
+                    />
+
+                    {/* Token Selector */}
+                    <Button className="ml-3 flex items-center gap-1 rounded-md px-2 py-0.5">
+                        <span className="flex items-center gap-1">
+                            USDC
+                        </span>
+                        <ChevronDown className="h-3.5 w-3.5 opacity-70" />
+                    </Button>
                 </div>
-
-                <span className="text-xs text-muted-foreground">~$143 USDC</span>
             </div>
+
 
             <Separator />
 

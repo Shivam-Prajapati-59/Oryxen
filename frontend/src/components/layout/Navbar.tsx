@@ -10,6 +10,7 @@ import { Button } from '../ui/button';
 // import { MobileNav } from '../common/Mobile-Nav';
 import Image from 'next/image';
 import { useState } from 'react';
+import ConnectWallet from '../common/ConnectWallet';
 
 export default function Navbar() {
     const [searchOpen, setSearchOpen] = useState(false);
@@ -60,9 +61,7 @@ export default function Navbar() {
                     <div className="flex items-center gap-2">
                         {/* Theme Toggle */}
                         <ThemeToggleButton />
-                        <Button className='py-4'>
-                            Connect Wallet
-                        </Button>
+                        <ConnectWallet />
 
                         {/* Mobile Navigation */}
                         <div className="md:hidden">

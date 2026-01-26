@@ -28,7 +28,7 @@ export default function RootLayout({
 }) {
   return (
     <ViewTransitions>
-      <html lang="en" suppressHydrationWarning>
+      <html lang="en" suppressHydrationWarning suppressContentEditableWarning>
         <body
           className={`${notoSans.variable} ${ibmPlexSans.variable} antialiased`}
         >

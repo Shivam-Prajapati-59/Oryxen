@@ -61,7 +61,7 @@ const TradingCard = () => {
 
                 {/* RIGHT COLUMN - ORDER PANEL */}
                 <div className="xl:sticky xl:top-4 h-full">
-                    <TradingOrderPanel />
+                    <TradingOrderPanel baseSymbol={selectedMarket.symbol.replace(/-PERP$/i, "")} />
                 </div>
             </div>
         </Container>
