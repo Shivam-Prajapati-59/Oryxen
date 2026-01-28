@@ -128,12 +128,19 @@ export default function WalletAccountModal({
                                             size="icon"
                                             variant="ghost"
                                             className="h-7 w-7 text-zinc-500 hover:text-white hover:bg-zinc-800"
-                                            onClick={() =>
-                                                window.open(`https://etherscan.io/address/${wallet.address}`, "_blank")
-                                            }
+                                            onClick={() => {
+                                                const isSolana = wallet.chainType === "solana";
+
+                                                const explorerUrl = isSolana
+                                                    ? `https://explorer.solana.com/address/${wallet.address}`
+                                                    : `https://etherscan.io/address/${wallet.address}`;
+
+                                                window.open(explorerUrl, "_blank");
+                                            }}
                                         >
                                             <ExternalLink size={14} />
                                         </Button>
+
                                     </div>
 
                                     {/* Export Button (Conditional) */}

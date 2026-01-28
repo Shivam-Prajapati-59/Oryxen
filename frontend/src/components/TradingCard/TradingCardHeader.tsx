@@ -47,7 +47,7 @@ const TradingCardHeader = ({ isOpen, setIsOpen, selectedMarket }: TradingCardHea
                             onError={() => setImageError(true)}
                         />
                     ) : (
-                        <div className="w-6 h-6 bg-gradient-to-tr from-[#9945FF] to-[#14F195] rounded-sm shrink-0" />
+                        <div className="w-6 h-6 bg-linear-to-tr from-[#9945FF] to-[#14F195] rounded-sm shrink-0" />
                     )}
 
                     <h2 className="text-xl font-ibm font-semibold tracking-wider">

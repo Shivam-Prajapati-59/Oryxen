@@ -6,6 +6,8 @@ import { Button } from "../ui/button";
 import { Separator } from "../ui/separator";
 import { usePriceFeed } from "@/hooks/usePriceFeed";
 import { Input } from "../ui/input";
+import { Slider } from "../ui/slider";
+import ProtocolDropDown from "./ProtocolDropDown";
 
 interface OrderPanelProps {
     baseSymbol: string
@@ -14,6 +16,7 @@ interface OrderPanelProps {
 const TradingOrderPanel = ({ baseSymbol }: OrderPanelProps) => {
     const [orderType, setOrderType] = useState<"market" | "limit">("market");
     const [leverage, setLeverage] = useState(2);
+    const [selectedProtocol, setSelectedProtocol] = useState("All");
     const { prices, isConnected } = usePriceFeed([baseSymbol]);
 
     const currentPrice = prices[baseSymbol];
@@ -29,8 +32,11 @@ const TradingOrderPanel = ({ baseSymbol }: OrderPanelProps) => {
         <div className="w-full space-y-4 text-sm border p-2">
             {/* FILTER BAR */}
             <div className="flex items-center gap-2">
-                <div className="flex-1 h-9 border flex items-center justify-center text-xs font-medium">
-                    All
+                <div className="flex-1 h-9 flex items-center justify-center text-xs font-medium">
+                    <ProtocolDropDown
+                        selectedProtocol={selectedProtocol}
+                        onProtocolChange={setSelectedProtocol}
+                    />
                 </div>
 
                 <Button
@@ -119,17 +125,25 @@ const TradingOrderPanel = ({ baseSymbol }: OrderPanelProps) => {
             <div className="space-y-2">
                 <div className="flex justify-between items-center">
                     <span className="text-xs text-muted-foreground">Leverage</span>
-                    <span className="text-base text-foreground font-medium">{leverage}x</span>
+                    <span className="text-base text-foreground font-medium">
+                        {leverage}x
+                    </span>
                 </div>
 
                 {/* SLIDER */}
-                <input
-                    type="range"
-                    min="2"
-                    max="100"
-                    value={leverage}
-                    onChange={(e) => setLeverage(Number(e.target.value))}
-                    className="w-full h-1 rounded-full bg-muted appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-emerald-500"
+                <Slider
+                    value={[
+                        ((leverage - 2) * 100) / (100 - 2) // map leverage → slider %
+                    ]}
+                    onValueChange={(value) => {
+                        const newLeverage = Math.round(
+                            2 + ((100 - 2) * value[0]) / 100
+                        );
+                        setLeverage(newLeverage);
+                    }}
+                    max={100}
+                    step={1}
+                    className="w-full"
                 />
 
                 <div className="flex justify-between text-[10px] text-muted-foreground">
