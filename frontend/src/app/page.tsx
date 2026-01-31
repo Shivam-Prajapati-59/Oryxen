@@ -1,7 +1,9 @@
 "use client";
 
 import Container from "@/components/common/Container";
+import DemoDrift from "@/components/common/DemoDrift";
 import TradingCard from "@/components/TradingCard/TradingCard";
+
 
 export default function Home() {
   return (
@@ -9,6 +11,7 @@ export default function Home() {
       <div className="pt-0">
         <TradingCard />
       </div>
+      <DemoDrift />
     </Container>
   );
 }

@@ -23,6 +23,17 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  turbopack: {
+    resolveAlias: {
+      fs: { browser: "./node-browser-compatibility.js" },
+      net: { browser: "./node-browser-compatibility.js" },
+      dns: { browser: "./node-browser-compatibility.js" },
+      tls: { browser: "./node-browser-compatibility.js" },
+      crypto: { browser: "crypto-browserify" },
+    },
+  },
+  // Transpile drift-labs packages
+  transpilePackages: ["@drift-labs/sdk-browser"],
 };
 
 export default nextConfig;
