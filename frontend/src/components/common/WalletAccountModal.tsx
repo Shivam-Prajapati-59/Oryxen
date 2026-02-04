@@ -2,9 +2,9 @@
 
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Check, Copy, ExternalLink, UserCircle2 } from "lucide-react";
+import { Check, Copy, ExternalLink, UserCircle2, Loader2 } from "lucide-react";
 import { usePrivy, WalletWithMetadata } from "@privy-io/react-auth";
-import { use, useState } from "react";
+import { useState } from "react";
 import Image from "next/image";
 import { CHAIN_ICONS } from "@/constants/chains";
 import { cn } from "@/lib/utils";
@@ -24,8 +24,9 @@ export default function WalletAccountModal({
     open: boolean;
     onClose: () => void;
 }) {
-    const { user, exportWallet } = usePrivy();
+    const { user, exportWallet, logout } = usePrivy();
     const [copied, setCopied] = useState<string | null>(null);
+    const [isDisconnecting, setIsDisconnecting] = useState(false);
 
     const wallets = user?.linkedAccounts?.filter((a) => a.type === "wallet") ?? [];
     const primaryWallet = user?.wallet;
@@ -38,6 +39,18 @@ export default function WalletAccountModal({
         navigator.clipboard.writeText(address);
         setCopied(address);
         setTimeout(() => setCopied(null), 2000);
+    };
+
+    const handleDisconnect = async () => {
+        setIsDisconnecting(true);
+        try {
+            await logout();
+            onClose();
+        } catch (error) {
+            console.error("Failed to disconnect:", error);
+        } finally {
+            setIsDisconnecting(false);
+        }
     };
 
     const getChainIcon = (chainType?: string) => {
@@ -170,11 +183,21 @@ export default function WalletAccountModal({
                     </Button>
 
                     <Button
+                        onClick={handleDisconnect}
+                        disabled={isDisconnecting}
                         className="flex-1 bg-[#1A2E1A] text-[#A3E635]
                                 hover:bg-[#243E24] hover:text-[#B4F050]
-                                border border-[#A3E635]/20 font-ibm text-md tracking-wide"
+                                border border-[#A3E635]/20 font-ibm text-md tracking-wide
+                                disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                        Disconnect
+                        {isDisconnecting ? (
+                            <>
+                                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                Disconnecting...
+                            </>
+                        ) : (
+                            "Disconnect"
+                        )}
                     </Button>
                 </div>
 

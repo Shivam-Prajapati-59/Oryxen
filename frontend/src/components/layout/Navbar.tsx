@@ -2,11 +2,8 @@
 
 import { navbarConfig } from '@/config/Navbar';
 import { Link } from 'next-view-transitions';
-import { Search } from 'lucide-react';
-
 import Container from '../common/Container';
 import { ThemeToggleButton } from '../custom/ThemeToggle';
-import { Button } from '../ui/button';
 // import { MobileNav } from '../common/Mobile-Nav';
 import Image from 'next/image';
 import { useState } from 'react';

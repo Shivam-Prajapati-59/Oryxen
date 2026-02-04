@@ -33,7 +33,7 @@ const nextConfig: NextConfig = {
     },
   },
   // Transpile drift-labs packages
-  transpilePackages: ["@drift-labs/sdk-browser"],
+  transpilePackages: ["@drift-labs/sdk-browser", "@solana/web3.js"],
 };
 
 export default nextConfig;

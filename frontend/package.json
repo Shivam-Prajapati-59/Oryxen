@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "@drift-labs/sdk-browser": "^2.156.0-beta.0",
+    "@nktkas/hyperliquid": "^0.30.3",
+    "@noble/hashes": "1.3.3",
     "@privy-io/react-auth": "^3.12.0",
     "@radix-ui/react-checkbox": "^1.3.3",
     "@radix-ui/react-dialog": "^1.1.15",
@@ -28,6 +30,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "crypto-browserify": "^3.12.1",
+    "ethers": "^6.16.0",
     "lucide-react": "^0.562.0",
     "motion": "^12.25.0",
     "next": "16.1.1",

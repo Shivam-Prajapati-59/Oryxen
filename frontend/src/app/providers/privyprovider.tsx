@@ -2,18 +2,22 @@
 
 import { PrivyProvider } from '@privy-io/react-auth';
 import { createSolanaRpc, createSolanaRpcSubscriptions } from '@solana/kit';
-import { base, berachain, polygon, sepolia } from 'viem/chains';
+import { arbitrum, arbitrumSepolia, base, baseSepolia, berachain, polygon, sepolia } from 'viem/chains';
 
 export default function PrivyProviders({ children }: { children: React.ReactNode }) {
 
     const privy_app_id = process.env.NEXT_PUBLIC_PRIVY_APP_ID || '';
+    const isTestnet = process.env.NEXT_PUBLIC_HYPERLIQUID_IS_TESTNET === 'true';
 
     return (
         <PrivyProvider
             appId={privy_app_id}
             config={{
-                // Create embedded wallets for users who don't have a wallet
+                // Create embedded wallets for BOTH Ethereum and Solana
                 embeddedWallets: {
+                    ethereum: {
+                        createOnLogin: 'all-users' // Changed to 'all-users' to ensure embedded wallet is always created
+                    },
                     solana: {
                         createOnLogin: 'users-without-wallets'
                     }
@@ -33,8 +37,9 @@ export default function PrivyProviders({ children }: { children: React.ReactNode
                     }
                 },
 
-                defaultChain: base,
-                supportedChains: [base, berachain, polygon, sepolia]
+                // Use Arbitrum Sepolia for testnet, Arbitrum for mainnet
+                defaultChain: isTestnet ? arbitrumSepolia : arbitrum,
+                supportedChains: [arbitrum, arbitrumSepolia, base, baseSepolia, berachain, polygon, sepolia]
             }}
         >
             {children}
