@@ -2,6 +2,7 @@
 
 import Container from "@/components/common/Container";
 import DemoDrift from "@/components/common/DemoDrift";
+import DemoHyperliquid from "@/components/common/DemoHyperliquid";
 import TradingCard from "@/components/TradingCard/TradingCard";
 
 
@@ -11,7 +12,8 @@ export default function Home() {
       <div className="pt-0">
         <TradingCard />
       </div>
-      <DemoDrift />
+      {/* <DemoDrift /> */}
+      <DemoHyperliquid />
     </Container>
   );
 }
