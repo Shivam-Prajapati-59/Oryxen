@@ -5,16 +5,16 @@ import { usePrivy } from "@privy-io/react-auth";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Loader2, TrendingUp, TrendingDown, Info, AlertTriangle } from "lucide-react";
-import { useDrift } from "@/hooks/useDrift";
+import { useDrift } from "@/hooks/protocols/useDrift";
 import { OrderVariant, TradeDirection } from "@/types/drift";
 
 // Environment configuration
 const DRIFT_ENV = "devnet"; // Change to "mainnet-beta" for production
 
-// Spot market options
+// Spot market options (Removed hardcoded indices, we use symbols now)
 const SPOT_MARKETS = [
-    { index: 0, symbol: "USDC" },
-    { index: 1, symbol: "SOL" },
+    { symbol: "USDC" },
+    { symbol: "SOL" },
 ];
 
 // Perp market options for trading
@@ -40,9 +40,10 @@ const DemoDrift = () => {
     const { authenticated, login, ready } = usePrivy();
 
     // Deposit/Withdraw state
+    const [selectedMarket, setSelectedMarket] = useState<string>("SOL");
     const [depositAmount, setDepositAmount] = useState<string>("0.5");
     const [withdrawAmount, setWithdrawAmount] = useState<string>("0.1");
-    const [selectedMarket, setSelectedMarket] = useState<number>(1); // Default SOL
+
     const [depositTx, setDepositTx] = useState<string | null>(null);
     const [withdrawTx, setWithdrawTx] = useState<string | null>(null);
 
@@ -84,6 +85,7 @@ const DemoDrift = () => {
         getOraclePrice,
         getPerpMarketInfo,
         calculateTradeDetails,
+        getSpotIndex, // Import the helper we created in the hook
     } = useDrift();
 
     // Get collateral values for display
@@ -121,7 +123,9 @@ const DemoDrift = () => {
                 alert("Please enter a valid amount");
                 return;
             }
+
             const result = await deposit(amount, selectedMarket, 0);
+
             if (result) {
                 setDepositTx(result.explorerUrl);
             }
@@ -137,7 +141,12 @@ const DemoDrift = () => {
                 alert("Please enter a valid amount");
                 return;
             }
-            const result = await withdraw(amount, selectedMarket, 0);
+
+            // For withdraw, if your hook still expects a number (Market Index),
+            // we use the helper to find it based on the current selected string.
+            const marketIndex = getSpotIndex(selectedMarket);
+
+            const result = await withdraw(amount, marketIndex, 0);
             if (result) {
                 setWithdrawTx(result.explorerUrl);
             }
@@ -363,17 +372,17 @@ const DemoDrift = () => {
                                     Transfer tokens from your wallet to your Drift account.
                                 </p>
 
-                                {/* Token Selection */}
+                                {/* Token Selection (Now handles Strings) */}
                                 <div className="space-y-2">
                                     <label htmlFor="market" className="text-sm font-medium">Select Token</label>
                                     <select
                                         id="market"
                                         value={selectedMarket}
-                                        onChange={(e) => setSelectedMarket(Number(e.target.value))}
+                                        onChange={(e) => setSelectedMarket(e.target.value)} // Set String
                                         className="w-full p-2 border rounded-md bg-background"
                                     >
                                         {SPOT_MARKETS.map((market) => (
-                                            <option key={market.index} value={market.index}>
+                                            <option key={market.symbol} value={market.symbol}>
                                                 {market.symbol}
                                             </option>
                                         ))}
@@ -395,7 +404,7 @@ const DemoDrift = () => {
                                             step="0.1"
                                         />
                                         <span className="self-center text-sm text-muted-foreground w-16">
-                                            {SPOT_MARKETS.find((m) => m.index === selectedMarket)?.symbol}
+                                            {selectedMarket}
                                         </span>
                                     </div>
                                 </div>
@@ -407,7 +416,7 @@ const DemoDrift = () => {
                                             Processing...
                                         </>
                                     ) : (
-                                        `Deposit ${depositAmount} ${SPOT_MARKETS.find((m) => m.index === selectedMarket)?.symbol}`
+                                        `Deposit ${depositAmount} ${selectedMarket}`
                                     )}
                                 </Button>
 
@@ -439,11 +448,11 @@ const DemoDrift = () => {
                                     <select
                                         id="withdraw-market"
                                         value={selectedMarket}
-                                        onChange={(e) => setSelectedMarket(Number(e.target.value))}
+                                        onChange={(e) => setSelectedMarket(e.target.value)} // Set String
                                         className="w-full p-2 border rounded-md bg-background"
                                     >
                                         {SPOT_MARKETS.map((market) => (
-                                            <option key={market.index} value={market.index}>
+                                            <option key={market.symbol} value={market.symbol}>
                                                 {market.symbol}
                                             </option>
                                         ))}
@@ -465,7 +474,7 @@ const DemoDrift = () => {
                                             step="0.1"
                                         />
                                         <span className="self-center text-sm text-muted-foreground w-16">
-                                            {SPOT_MARKETS.find((m) => m.index === selectedMarket)?.symbol}
+                                            {selectedMarket}
                                         </span>
                                     </div>
                                 </div>
@@ -477,7 +486,7 @@ const DemoDrift = () => {
                                             Processing...
                                         </>
                                     ) : (
-                                        `Withdraw ${withdrawAmount} ${SPOT_MARKETS.find((m) => m.index === selectedMarket)?.symbol}`
+                                        `Withdraw ${withdrawAmount} ${selectedMarket}`
                                     )}
                                 </Button>
 
@@ -499,6 +508,8 @@ const DemoDrift = () => {
                             {/* Trading Section */}
                             <div className="rounded-lg border p-4 space-y-4">
                                 <h3 className="font-semibold">Place Perp Order</h3>
+                                {/* ... Rest of Trading Section remains the same ... */}
+                                {/* ... (The rest of your JSX logic for trading was already correct) ... */}
                                 <p className="text-sm text-muted-foreground">
                                     Trade perpetual contracts with leverage on Drift.
                                 </p>

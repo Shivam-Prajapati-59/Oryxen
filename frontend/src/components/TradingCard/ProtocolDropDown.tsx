@@ -13,7 +13,7 @@ interface ProtocolDropDownProps {
     onProtocolChange: (protocol: string) => void;
 }
 
-const protocols = ["All", "Drift", "Hyperliquid", "Flash"];
+const protocols = ["All", "Drift", "Jup Perps", "Flash"];
 
 const ProtocolDropDown = ({ selectedProtocol, onProtocolChange }: ProtocolDropDownProps) => {
     return (

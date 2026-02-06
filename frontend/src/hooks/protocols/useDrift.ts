@@ -12,7 +12,9 @@ import {
   PostOnlyParams,
   PositionDirection,
   OrderTriggerCondition,
+  SpotMarkets,
 } from "@drift-labs/sdk-browser";
+import { getAssociatedTokenAddress } from "@solana/spl-token";
 import {
   Connection,
   PublicKey,
@@ -167,6 +169,15 @@ export const useDrift = () => {
 
   const sdkConfig = useMemo(() => initialize({ env: DRIFT_ENV }), []);
 
+  const getTokenAddress = (
+    mintAddress: string,
+    userPubKey: string,
+  ): Promise<PublicKey> => {
+    return getAssociatedTokenAddress(
+      new PublicKey(mintAddress),
+      new PublicKey(userPubKey),
+    );
+  };
   const chainPrefix =
     DRIFT_ENV === "devnet" ? "solana:devnet" : "solana:mainnet";
 
@@ -284,57 +295,83 @@ export const useDrift = () => {
   const deposit = useCallback(
     async (
       amount: number,
-      marketIndex: number = 0,
+      symbol: string, // Change input to 'symbol' (e.g., "SOL" or "USDC")
       subAccountId: number = 0,
     ) => {
-      if (!driftClient) {
-        throw new Error("Drift client not initialized");
-      }
-
-      if (!privyWallet) {
-        throw new Error("No wallet connected");
-      }
-
+      if (!driftClient) throw new Error("Drift client not initialized");
+      if (!privyWallet) throw new Error("No wallet connected");
       if (!isMountedRef.current) return null;
+
       setIsLoading(true);
       setError(null);
 
+      const walletPublicKey = new PublicKey(privyWallet.address);
+      // Misc. other things to set up
+      const usdcTokenAddress = await getTokenAddress(
+        sdkConfig.USDC_MINT_ADDRESS,
+        walletPublicKey.toString(),
+      );
+
       try {
-        // Convert amount to the correct precision for the spot market
+        const spotInfo = SpotMarkets[DRIFT_ENV].find(
+          (market) => market.symbol === symbol,
+        );
+
+        if (!spotInfo) {
+          throw new Error(`Spot market for ${symbol} not found`);
+        }
+
+        const marketIndex = spotInfo.marketIndex; // Returns 1 for SOL, 0 for USDC
+        console.log(`Depositing ${symbol} to Market Index ${marketIndex}`);
+
+        // 2. PREPARE DATA
+        const walletPublicKey = new PublicKey(privyWallet.address);
+        const associatedTokenAccount =
+          await driftClient.getAssociatedTokenAccount(marketIndex);
+
         const depositAmount = driftClient.convertToSpotPrecision(
           marketIndex,
           amount,
         );
 
-        // Get the associated token account for this market
-        const associatedTokenAccount =
-          await driftClient.getAssociatedTokenAccount(marketIndex);
+        // 3. CHECK BALANCE (Fixed for Native SOL)
+        let tokenBalance = new BN(0);
 
-        // Get wallet public key
-        const walletPublicKey = new PublicKey(privyWallet.address);
+        if (symbol === "SOL") {
+          // Special handling for Native SOL
+          const rawBalance = await connection.getBalance(walletPublicKey);
+          tokenBalance = new BN(rawBalance);
+        }
 
-        // Check balance before deposit
-        let tokenBalance: number;
-
-        if (associatedTokenAccount.equals(walletPublicKey)) {
-          // For SOL - balance is on the wallet public key
-          tokenBalance = await connection.getBalance(walletPublicKey);
+        if (symbol === "USDC") {
+          const tokenAddress = getTokenAddress(
+            usdcTokenAddress.toString(),
+            walletPublicKey.toString(),
+          );
         } else {
-          // For other tokens - use the ATA balance
-          const tokenAccountInfo = await connection.getTokenAccountBalance(
-            associatedTokenAccount,
-          );
-          tokenBalance = Number(tokenAccountInfo.value.amount);
+          // Handling for USDC and other tokens
+          try {
+            const tokenAccountInfo = await connection.getTokenAccountBalance(
+              associatedTokenAccount,
+            );
+            tokenBalance = new BN(tokenAccountInfo.value.amount);
+          } catch (e) {
+            // ATA doesn't exist = 0 balance
+            tokenBalance = new BN(0);
+          }
         }
 
-        // Validate sufficient balance
-        if (depositAmount.gt(new BN(tokenBalance))) {
+        // 4. VALIDATE BALANCE
+        if (depositAmount.gt(tokenBalance)) {
+          const readableBalance =
+            tokenBalance.toNumber() /
+            Math.pow(10, spotInfo.precisionExp.toNumber());
           throw new Error(
-            `Insufficient balance. You have ${tokenBalance} but need ${depositAmount.toString()}`,
+            `Insufficient balance. You have ${readableBalance} ${symbol} but need ${amount}`,
           );
         }
 
-        // Create and send the deposit transaction
+        // 5. EXECUTE TRANSACTION
         const tx = await driftClient.createDepositTxn(
           depositAmount,
           marketIndex,
@@ -357,14 +394,10 @@ export const useDrift = () => {
       } catch (err) {
         const errorMessage =
           err instanceof Error ? err.message : "Failed to deposit";
-        if (isMountedRef.current) {
-          setError(errorMessage);
-        }
+        if (isMountedRef.current) setError(errorMessage);
         throw err;
       } finally {
-        if (isMountedRef.current) {
-          setIsLoading(false);
-        }
+        if (isMountedRef.current) setIsLoading(false);
       }
     },
     [driftClient, privyWallet, connection],
@@ -693,6 +726,14 @@ export const useDrift = () => {
     }
   }, [driftClient]);
 
+  const getSpotIndex = useCallback((symbol: string): number => {
+    const market = SpotMarkets[DRIFT_ENV].find((m) => m.symbol === symbol);
+    if (!market) {
+      throw new Error(`Spot market ${symbol} not found`);
+    }
+    return market.marketIndex;
+  }, []);
+
   return {
     // State
     driftClient,
@@ -712,6 +753,7 @@ export const useDrift = () => {
     placeOrder,
     clearError,
     refreshUser,
+    getSpotIndex,
 
     // Helper to get user's free collateral
     getFreeCollateral: useCallback(() => {
