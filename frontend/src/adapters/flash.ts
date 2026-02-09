@@ -23,7 +23,13 @@ import {
   Privilege,
 } from "flash-sdk";
 import type { FlashConfig, FlashCluster, FlashPoolName } from "@/types/flash";
+import {
+  getPythProgramKeyForCluster,
+  PriceData,
+  PythHttpClient,
+} from "@pythnetwork/client";
 
+// Environment Configuration
 const FLASH_ENV: FlashCluster = "devnet"; // Change to "mainnet-beta" for production
 
 const FLASH_RPC_URLS: Record<FlashCluster, string> = {
@@ -52,6 +58,8 @@ export const FLASH_CONFIG: FlashConfig = {
   chainPrefix: FLASH_CHAIN_PREFIX[FLASH_ENV],
   prioritizationFee: 0,
 };
+
+// Utility Functions
 
 /** Validate base58 Solana address (exclude EVM 0x addresses) */
 export const isValidSolanaAddress = (address: string): boolean => {
@@ -143,16 +151,13 @@ export const createPrivyWalletAdapter = (
 
 /**
  * Creates a fully-configured PerpetualsClient for the Flash Trade protocol.
- *
- * @param privyWallet - Connected Privy Solana wallet instance
- * @param config      - Optional override config (defaults to FLASH_CONFIG)
- * @returns           - { client, poolConfig, connection }
+ * This factory should be called when you have a connected Privy wallet.
  */
 export const createFlashClient = (
   privyWallet: any,
   config: FlashConfig = FLASH_CONFIG,
 ) => {
-  // 1. Solana connection — use the config's RPC URL, not a hardcoded mainnet one
+  // 1. Solana connection — use the config's RPC URL
   const connection = new Connection(config.rpcUrl, "processed");
 
   // 2. Anchor wallet adapter from Privy wallet
@@ -185,102 +190,49 @@ export const createFlashClient = (
   return { client, poolConfig, connection };
 };
 
-// Pyth Price Fetcher (via Hermes HTTP API)
-export interface PythPriceData {
-  id: string;
-  price: {
-    price: string;
-    conf: string;
-    expo: number;
-    publish_time: number;
-  };
-  ema_price: {
-    price: string;
-    conf: string;
-    expo: number;
-    publish_time: number;
-  };
-}
-
-export const getPythPriceData = async (
-  priceIds: string[],
-): Promise<PythPriceData[]> => {
-  const hermesUrl =
-    process.env.NEXT_PUBLIC_HERMES_URL || "https://hermes.pyth.network";
-
-  const params = new URLSearchParams();
-  priceIds.forEach((id) => {
-    // Strip 0x prefix for query param — Hermes accepts both but be safe
-    params.append("ids[]", id);
-  });
-
-  const response = await fetch(
-    `${hermesUrl}/api/latest_price_feeds?${params.toString()}`,
+/**
+ * Setup Pyth pricing data
+ */
+const getPythClient = () => {
+  const connectionFromPyth = new Connection("https://pythnet.rpcpool.com");
+  return new PythHttpClient(
+    connectionFromPyth,
+    getPythProgramKeyForCluster("pythnet"),
   );
-
-  if (!response.ok) {
-    throw new Error(
-      `Hermes API error: ${response.status} ${response.statusText}`,
-    );
-  }
-
-  const data: PythPriceData[] = await response.json();
-  return data;
 };
 
-export const getPrices = async (
-  poolConfig: PoolConfig,
-): Promise<Map<string, { price: OraclePrice; emaPrice: OraclePrice }>> => {
-  // Deduplicate price IDs (SOL and WSOL share the same pythPriceId)
-  const tokensByPriceId = new Map<string, typeof poolConfig.tokens>();
-  for (const token of poolConfig.tokens) {
-    const id = token.pythPriceId;
-    if (!tokensByPriceId.has(id)) {
-      tokensByPriceId.set(id, []);
-    }
-    tokensByPriceId.get(id)!.push(token);
-  }
-
-  const uniquePriceIds = Array.from(tokensByPriceId.keys());
-  const hermesData = await getPythPriceData(uniquePriceIds);
-
-  // Build a lookup: normalised id (no 0x, lowercase) → PythPriceData
-  const hermesById = new Map<string, PythPriceData>();
-  for (const feed of hermesData) {
-    hermesById.set(feed.id.replace(/^0x/, "").toLowerCase(), feed);
-  }
+/**
+ * Fetch current prices from Pyth for all pool tokens
+ */
+const getPrices = async (poolConfig: PoolConfig) => {
+  const pythClient = getPythClient();
+  const pythHttpClientResult = await pythClient.getData();
 
   const priceMap = new Map<
     string,
     { price: OraclePrice; emaPrice: OraclePrice }
   >();
 
-  for (const token of poolConfig.tokens) {
-    const normId = token.pythPriceId.replace(/^0x/, "").toLowerCase();
-    const feed = hermesById.get(normId);
-
-    if (!feed) {
-      throw new Error(
-        `Hermes price not found for ${token.symbol} (pythPriceId: ${token.pythPriceId})`,
-      );
+  for (let token of poolConfig.tokens) {
+    const priceData: PriceData = pythHttpClientResult.productPrice.get(
+      token.pythTicker,
+    )!;
+    if (!priceData) {
+      throw new Error(`priceData not found for ${token.symbol}`);
     }
-
-    // Hermes returns: price.price (string integer), price.expo (negative int),
-    // price.conf (string integer), price.publish_time (unix seconds)
     const priceOracle = new OraclePrice({
-      price: new BN(feed.price.price),
-      exponent: new BN(feed.price.expo),
-      confidence: new BN(feed.price.conf),
-      timestamp: new BN(feed.price.publish_time),
+      price: new BN(priceData?.aggregate.priceComponent.toString()),
+      exponent: new BN(priceData?.exponent),
+      confidence: new BN(priceData?.confidence!),
+      timestamp: new BN(priceData?.timestamp.toString()),
     });
 
     const emaPriceOracle = new OraclePrice({
-      price: new BN(feed.ema_price.price),
-      exponent: new BN(feed.ema_price.expo),
-      confidence: new BN(feed.ema_price.conf),
-      timestamp: new BN(feed.ema_price.publish_time),
+      price: new BN(priceData?.emaPrice.valueComponent.toString()),
+      exponent: new BN(priceData?.exponent),
+      confidence: new BN(priceData?.emaConfidence.valueComponent.toString()),
+      timestamp: new BN(priceData?.timestamp.toString()),
     });
-
     priceMap.set(token.symbol, {
       price: priceOracle,
       emaPrice: emaPriceOracle,
@@ -290,136 +242,100 @@ export const getPrices = async (
   return priceMap;
 };
 
-// Open Position With Swap
-
 /**
- * Opens a perpetual position using a swap (e.g. SOL → USDC collateral → long BTC).
- *
- * SDK method: `swapAndOpen(targetTokenSymbol, collateralTokenSymbol, userInputTokenSymbol,
- *   amountIn, priceWithSlippage, sizeAmount, side, poolConfig, privilege)`
- *
- * @param client           - Initialized PerpetualsClient
- * @param poolConfig       - Pool config for the target cluster
- * @param inputTokenSymbol - Token the user is depositing (e.g. "SOL")
- * @param targetTokenSymbol - Token to trade (e.g. "BTC")
- * @param collateralTokenSymbol - Collateral token (e.g. "USDC")
- * @param inputAmount      - Human-readable amount of input token
- * @param side             - Side.Long or Side.Short
- * @param leverage         - Desired leverage (e.g. 1.1)
- * @param slippageBps      - Slippage in basis points (e.g. 800 = 0.8%)
+ * Open a position with different collateral using swap
+ * (e.g., SOL collateral to open BTC position)
  */
 export const openPositionWithSwap = async (
   client: PerpetualsClient,
   poolConfig: PoolConfig,
-  connection: Connection,
   inputTokenSymbol: string,
-  targetTokenSymbol: string,
-  collateralTokenSymbol: string,
+  outputTokenSymbol: string,
   inputAmount: string,
-  side: typeof Side.Long | typeof Side.Short,
+  side: Side,
   leverage: number = 1.1,
   slippageBps: number = 800,
-): Promise<string> => {
+) => {
   const instructions: TransactionInstruction[] = [];
   let additionalSigners: Signer[] = [];
 
   const inputToken = poolConfig.tokens.find(
     (t) => t.symbol === inputTokenSymbol,
   )!;
-  const targetToken = poolConfig.tokens.find(
-    (t) => t.symbol === targetTokenSymbol,
-  )!;
-  const collateralToken = poolConfig.tokens.find(
-    (t) => t.symbol === collateralTokenSymbol,
+  const outputToken = poolConfig.tokens.find(
+    (t) => t.symbol === outputTokenSymbol,
   )!;
 
-  if (!inputToken || !targetToken || !collateralToken) {
-    throw new Error(
-      `Token not found in pool config: input=${inputTokenSymbol}, target=${targetTokenSymbol}, collateral=${collateralTokenSymbol}`,
-    );
+  if (!inputToken || !outputToken) {
+    throw new Error(`Token not found in pool config`);
   }
 
-  // 1. Fetch oracle prices
   const priceMap = await getPrices(poolConfig);
 
   const inputTokenPrice = priceMap.get(inputToken.symbol)!.price;
   const inputTokenPriceEma = priceMap.get(inputToken.symbol)!.emaPrice;
-  const targetTokenPrice = priceMap.get(targetToken.symbol)!.price;
-  const targetTokenPriceEma = priceMap.get(targetToken.symbol)!.emaPrice;
-  const collateralTokenPrice = priceMap.get(collateralToken.symbol)!.price;
-  const collateralTokenPriceEma = priceMap.get(
-    collateralToken.symbol,
-  )!.emaPrice;
+  const outputTokenPrice = priceMap.get(outputToken.symbol)!.price;
+  const outputTokenPriceEma = priceMap.get(outputToken.symbol)!.emaPrice;
 
-  // 2. Load ALTs
+  // Load address lookup table for transaction optimization
   await client.loadAddressLookupTable(poolConfig);
 
-  // 3. Calculate slippage-adjusted price
   const priceAfterSlippage = client.getPriceAfterSlippage(
-    true, // isEntry
+    true,
     new BN(slippageBps),
-    targetTokenPrice,
+    outputTokenPrice,
     side,
   );
 
-  // 4. Convert input amount to native units
   const collateralWithFee = uiDecimalsToNative(
     inputAmount,
     inputToken.decimals,
   );
 
-  // 5. Fetch on-chain custody & pool accounts
   const inputCustody = poolConfig.custodies.find(
     (c) => c.symbol === inputToken.symbol,
   )!;
-  const targetCustody = poolConfig.custodies.find(
-    (c) => c.symbol === targetToken.symbol,
-  )!;
-  const collateralCustody = poolConfig.custodies.find(
-    (c) => c.symbol === collateralToken.symbol,
+  const outputCustody = poolConfig.custodies.find(
+    (c) => c.symbol === outputToken.symbol,
   )!;
 
-  const [inputCustodyData, targetCustodyData, collateralCustodyData] =
-    await client.program.account.custody.fetchMultiple([
-      inputCustody.custodyAccount,
-      targetCustody.custodyAccount,
-      collateralCustody.custodyAccount,
-    ]);
+  // Fetch custody data
+  const custodies = await client.program.account.custody.fetchMultiple([
+    inputCustody.custodyAccount,
+    outputCustody.custodyAccount,
+  ]);
 
   const poolAccount = PoolAccount.from(
     poolConfig.poolAddress,
     await client.program.account.pool.fetch(poolConfig.poolAddress),
   );
 
-  // 6. Build custody account wrappers
-  const inputCustodyAccount = CustodyAccount.from(
-    inputCustody.custodyAccount,
-    inputCustodyData!,
-  );
-  const targetCustodyAccount = CustodyAccount.from(
-    targetCustody.custodyAccount,
-    targetCustodyData!,
-  );
-  const collateralCustodyAccount = CustodyAccount.from(
-    collateralCustody.custodyAccount,
-    collateralCustodyData!,
-  );
-
-  // 7. Calculate LP stats (needed for pool AUM)
   const allCustodies = await client.program.account.custody.all();
+
   const lpMintData = await getMint(
-    connection as any,
+    client.provider.connection as any,
     poolConfig.stakedLpTokenMint,
   );
+
   const poolDataClient = new PoolDataClient(
     poolConfig,
     poolAccount,
     lpMintData,
-    allCustodies.map((c) => CustodyAccount.from(c.publicKey, c.account)),
+    [...allCustodies.map((c) => CustodyAccount.from(c.publicKey, c.account))],
   );
-  const lpStats = poolDataClient.getLpStats(priceMap);
 
-  // 8. Calculate position size from leverage & collateral
+  let lpStats = poolDataClient.getLpStats(await getPrices(poolConfig));
+
+  const inputCustodyAccount = CustodyAccount.from(
+    inputCustody.custodyAccount,
+    custodies[0]!,
+  );
+  const outputCustodyAccount = CustodyAccount.from(
+    outputCustody.custodyAccount,
+    custodies[1]!,
+  );
+
+  // Calculate size with swap - Flash SDK takes 19 params per docs
   const size = client.getSizeAmountWithSwapSync(
     collateralWithFee,
     leverage.toString(),
@@ -428,23 +344,25 @@ export const openPositionWithSwap = async (
     inputTokenPrice,
     inputTokenPriceEma,
     inputCustodyAccount,
-    collateralTokenPrice,
-    collateralTokenPriceEma,
-    collateralCustodyAccount,
-    targetTokenPrice,
-    targetTokenPriceEma,
-    targetCustodyAccount,
-    targetTokenPrice,
-    targetTokenPriceEma,
-    targetCustodyAccount,
+    outputTokenPrice,
+    outputTokenPriceEma,
+    outputCustodyAccount,
+    outputTokenPrice,
+    outputTokenPriceEma,
+    outputCustodyAccount,
+    outputTokenPrice,
+    outputTokenPriceEma,
+    outputCustodyAccount,
     lpStats.totalPoolValueUsd,
     poolConfig,
-    uiDecimalsToNative("5", 2), // trading discount (NFT level dependent)
+    uiDecimalsToNative(`0`, 2), // 0 = no NFT discount; set 1-5 if user holds a Flash Beast NFT
   );
 
+  // Execute swap and open
+  // SDK signature: (target, collateral, input, amountIn, priceWithSlippage, sizeAmount, side, poolConfig, privilege)
   const openPositionData = await client.swapAndOpen(
-    targetToken.symbol,
-    collateralToken.symbol,
+    outputToken.symbol,
+    outputToken.symbol,
     inputToken.symbol,
     collateralWithFee,
     priceAfterSlippage,
@@ -457,23 +375,279 @@ export const openPositionWithSwap = async (
   instructions.push(...openPositionData.instructions);
   additionalSigners.push(...openPositionData.additionalSigners);
 
-  // 10. Set compute unit limit and send transaction
   const setCULimitIx = ComputeBudgetProgram.setComputeUnitLimit({
     units: 600_000,
   });
 
+  // Retrieve loaded ALTs — required for VersionedTransaction account resolution
   const { addressLookupTables } = await client.getOrLoadAddressLookupTable(
     poolConfig,
   );
 
-  const txSignature = await client.sendTransaction(
-    [setCULimitIx, ...instructions],
-    {
-      additionalSigners,
-      alts: addressLookupTables,
-    },
+  const trxId = await client.sendTransaction([setCULimitIx, ...instructions], {
+    additionalSigners: additionalSigners,
+    alts: addressLookupTables,
+  });
+
+  console.log("Transaction executed :>> ", trxId);
+  return trxId;
+};
+
+/**
+ * Open a position with the same collateral
+ * (e.g., BTC collateral to open BTC position)
+ */
+export const openPosition = async (
+  client: PerpetualsClient,
+  poolConfig: PoolConfig,
+  outputTokenSymbol: string,
+  inputTokenSymbol: string,
+  collateralAmount: string,
+  side: Side,
+  leverage: number = 1.1,
+  slippageBps: number = 800,
+) => {
+  const instructions: TransactionInstruction[] = [];
+  let additionalSigners: Signer[] = [];
+
+  const inputToken = poolConfig.tokens.find(
+    (t) => t.symbol === inputTokenSymbol,
+  )!;
+  const outputToken = poolConfig.tokens.find(
+    (t) => t.symbol === outputTokenSymbol,
+  )!;
+
+  const priceMap = await getPrices(poolConfig);
+
+  const inputTokenPrice = priceMap.get(inputToken.symbol)!.price;
+  const inputTokenPriceEma = priceMap.get(inputToken.symbol)!.emaPrice;
+  const outputTokenPrice = priceMap.get(outputToken.symbol)!.price;
+  const outputTokenPriceEma = priceMap.get(outputToken.symbol)!.emaPrice;
+
+  await client.loadAddressLookupTable(poolConfig);
+
+  const priceAfterSlippage = client.getPriceAfterSlippage(
+    true,
+    new BN(slippageBps),
+    outputTokenPrice,
+    side,
   );
 
-  console.log("[Flash] openPositionWithSwap tx:", txSignature);
-  return txSignature;
+  const collateralWithFee = uiDecimalsToNative(
+    collateralAmount,
+    inputToken.decimals,
+  );
+
+  const inputCustody = poolConfig.custodies.find(
+    (c) => c.symbol === inputToken.symbol,
+  )!;
+  const outputCustody = poolConfig.custodies.find(
+    (c) => c.symbol === outputToken.symbol,
+  )!;
+
+  const custodies = await client.program.account.custody.fetchMultiple([
+    inputCustody.custodyAccount,
+    outputCustody.custodyAccount,
+  ]);
+
+  const outputAmount = client.getSizeAmountFromLeverageAndCollateral(
+    collateralWithFee,
+    leverage.toString(),
+    outputToken,
+    inputToken,
+    side,
+    outputTokenPrice,
+    outputTokenPriceEma,
+    CustodyAccount.from(outputCustody.custodyAccount, custodies[1]!),
+    inputTokenPrice,
+    inputTokenPriceEma,
+    CustodyAccount.from(inputCustody.custodyAccount, custodies[0]!),
+    uiDecimalsToNative(`0`, 2), // 0 = no NFT discount; set 1-5 if user holds a Flash Beast NFT
+  );
+
+  const openPositionData = await client.openPosition(
+    outputToken.symbol,
+    inputToken.symbol,
+    priceAfterSlippage,
+    collateralWithFee,
+    outputAmount,
+    side,
+    poolConfig,
+    Privilege.None,
+  );
+
+  instructions.push(...openPositionData.instructions);
+  additionalSigners.push(...openPositionData.additionalSigners);
+
+  const setCULimitIx = ComputeBudgetProgram.setComputeUnitLimit({
+    units: 600_000,
+  });
+
+  // Retrieve loaded ALTs — required for VersionedTransaction account resolution
+  const { addressLookupTables } = await client.getOrLoadAddressLookupTable(
+    poolConfig,
+  );
+
+  const trxId = await client.sendTransaction([setCULimitIx, ...instructions], {
+    additionalSigners: additionalSigners,
+    alts: addressLookupTables,
+  });
+
+  console.log("Transaction executed :>> ", trxId);
+  return trxId;
 };
+
+/**
+ * Set Take Profit and/or Stop Loss on an existing position.
+ *
+ * NOTE:
+ * - Stop Loss: must be above Liquidation Price and below Current Price for LONG;
+ *              must be above Current Price for SHORT
+ * - Take Profit: must be above Current Price for LONG;
+ *                must be below Current Price for SHORT
+ *
+ * @param client        - Initialized PerpetualsClient
+ * @param poolConfig    - Pool config for the target cluster
+ * @param market        - The market PublicKey (e.g. SOL-Long market account)
+ * @param takeProfitPriceUi - TP price in USD (or undefined to skip)
+ * @param stopLossPriceUi   - SL price in USD (or undefined to skip)
+ */
+export const setTpAndSlForMarket = async (
+  client: PerpetualsClient,
+  poolConfig: PoolConfig,
+  market: PublicKey,
+  takeProfitPriceUi: number | undefined,
+  stopLossPriceUi: number | undefined,
+) => {
+  const marketConfig = poolConfig.markets.find((f) =>
+    f.marketAccount.equals(market),
+  )!;
+
+  if (!marketConfig) {
+    throw new Error(`Market not found: ${market.toBase58()}`);
+  }
+
+  const targetCustodyConfig = poolConfig.custodies.find((c) =>
+    c.custodyAccount.equals(marketConfig.targetCustody),
+  )!;
+  const collateralCustodyConfig = poolConfig.custodies.find((c) =>
+    c.custodyAccount.equals(marketConfig.collateralCustody),
+  )!;
+
+  const instructions: TransactionInstruction[] = [];
+  const additionalSigners: Signer[] = [];
+  let COMPUTE_LIMIT = 0;
+
+  // Find the user's open position for this market
+  const positions = await client.getUserPositions(
+    client.provider.publicKey,
+    poolConfig,
+  );
+
+  const position = positions
+    .filter((f) => !f.sizeAmount.isZero())
+    .find((p) => p.market.equals(market));
+
+  if (!position) {
+    throw new Error(`No open position for market: ${market.toBase58()}`);
+  }
+
+  const side = marketConfig.side;
+
+  // ── Take Profit ──────────────────────────────────────────────────
+  if (takeProfitPriceUi) {
+    const triggerPriceNative = uiDecimalsToNative(
+      takeProfitPriceUi.toString(),
+      targetCustodyConfig.decimals,
+    );
+
+    const triggerOraclePrice = new OraclePrice({
+      price: new BN(triggerPriceNative.toString()),
+      exponent: new BN(targetCustodyConfig.decimals).neg(),
+      confidence: BN_ZERO,
+      timestamp: BN_ZERO,
+    });
+
+    const triggerContractOraclePrice =
+      triggerOraclePrice.toContractOraclePrice();
+
+    const result = await client.placeTriggerOrder(
+      targetCustodyConfig.symbol,
+      collateralCustodyConfig.symbol,
+      collateralCustodyConfig.symbol, // receiveSymbol — receive collateral token back
+      side,
+      triggerContractOraclePrice,
+      position.sizeAmount, // full size; can be partial
+      false, // isStopLoss = false → this is a Take Profit
+      poolConfig,
+    );
+
+    instructions.push(...result.instructions);
+    additionalSigners.push(...result.additionalSigners);
+    COMPUTE_LIMIT = 90_000;
+  }
+
+  // ── Stop Loss ────────────────────────────────────────────────────
+  if (stopLossPriceUi) {
+    const triggerPriceNative = uiDecimalsToNative(
+      stopLossPriceUi.toString(),
+      targetCustodyConfig.decimals,
+    );
+
+    const triggerOraclePrice = new OraclePrice({
+      price: new BN(triggerPriceNative.toString()),
+      exponent: new BN(targetCustodyConfig.decimals).neg(),
+      confidence: BN_ZERO,
+      timestamp: BN_ZERO,
+    });
+
+    const triggerContractOraclePrice =
+      triggerOraclePrice.toContractOraclePrice();
+
+    const result = await client.placeTriggerOrder(
+      targetCustodyConfig.symbol,
+      collateralCustodyConfig.symbol,
+      collateralCustodyConfig.symbol, // receiveSymbol
+      side,
+      triggerContractOraclePrice,
+      position.sizeAmount, // full size; can be partial
+      true, // isStopLoss = true → this is a Stop Loss
+      poolConfig,
+    );
+
+    instructions.push(...result.instructions);
+    additionalSigners.push(...result.additionalSigners);
+    COMPUTE_LIMIT = COMPUTE_LIMIT + 90_000;
+  }
+
+  const setCULimitIx = ComputeBudgetProgram.setComputeUnitLimit({
+    units: COMPUTE_LIMIT,
+  });
+
+  // Retrieve loaded ALTs — required for VersionedTransaction account resolution
+  const { addressLookupTables } = await client.getOrLoadAddressLookupTable(
+    poolConfig,
+  );
+
+  const trxId = await client.sendTransaction([setCULimitIx, ...instructions], {
+    additionalSigners,
+    alts: addressLookupTables,
+  });
+
+  console.log("TP/SL transaction executed :>> ", trxId);
+  return trxId;
+};
+
+/**
+ * Get available tokens in the pool
+ */
+export const getAvailableTokens = (poolConfig: PoolConfig) => {
+  return poolConfig.tokens.map((token) => ({
+    symbol: token.symbol,
+    decimals: token.decimals,
+    mintKey: token.mintKey.toString(),
+  }));
+};
+
+// Export Side enum for component use
+export { Side };

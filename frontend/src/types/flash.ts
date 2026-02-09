@@ -1,15 +1,6 @@
 import type { BN } from "@coral-xyz/anchor";
 import type { Cluster } from "@solana/web3.js";
-import type {
-  PerpetualsClient,
-  PoolConfig,
-  MarketConfig,
-  Token,
-  CustodyConfig,
-  OraclePrice,
-  PositionAccount,
-  OrderAccount,
-} from "flash-sdk";
+import type { PerpetualsClient, PoolConfig } from "flash-sdk";
 import { Side } from "flash-sdk";
 
 /** Supported Flash cluster environments */

@@ -75,7 +75,6 @@ const DemoFlash = () => {
     await openPosition({
       inputTokenSymbol: inputToken,
       targetTokenSymbol: targetToken,
-      collateralTokenSymbol: COLLATERAL_TOKEN,
       inputAmount,
       direction,
       leverage,
