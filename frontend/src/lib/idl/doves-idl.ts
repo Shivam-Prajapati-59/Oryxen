@@ -1,10 +1,4 @@
 export type Doves = {
-  address: "DoVEsk76QybCEHQGzkvYPWLQu9gzNoZZZt3TPiL597e";
-  metadata: {
-    name: "doves";
-    version: "0.1.0";
-    spec: "0.1.0";
-  };
   version: "0.1.0";
   name: "doves";
   instructions: [
@@ -366,12 +360,6 @@ export type Doves = {
 };
 
 export const IDL: Doves = {
-  address: "DoVEsk76QybCEHQGzkvYPWLQu9gzNoZZZt3TPiL597e",
-  metadata: {
-    name: "doves",
-    version: "0.1.0",
-    spec: "0.1.0",
-  },
   version: "0.1.0",
   name: "doves",
   instructions: [

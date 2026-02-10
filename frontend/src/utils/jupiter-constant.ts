@@ -1,11 +1,7 @@
-import { AnchorProvider, BN, Program, Wallet, Idl } from "@coral-xyz/anchor";
+import { AnchorProvider, BN, Program, Wallet } from "@coral-xyz/anchor";
 import { IDL, type Perpetuals } from "@/lib/idl/jupiter-perpetuals-idl";
 import { IDL as DovesIDL, type Doves } from "@/lib/idl/doves-idl";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
-
-// Cast types to work around Anchor 0.30+ type constraints with legacy IDL format
-type PerpetualsIdl = Perpetuals & Idl;
-type DovesIdl = Doves & Idl;
 
 export const RPC_CONNECTION = new Connection(
   process.env.RPC_URL || "https://api.mainnet-beta.solana.com",
@@ -31,20 +27,22 @@ export const JLP_MINT_PUBKEY = new PublicKey(
   "27G8MtK7VtTcCHkpASjSDdkWWYfoqT6ggEuKidVJidD4",
 );
 
-export const DOVES_PROGRAM = new Program<DovesIdl>(
-  DovesIDL as DovesIdl,
+export const DOVES_PROGRAM = new Program<Doves>(
+  DovesIDL,
+  DOVES_PROGRAM_ID,
   new AnchorProvider(
-    RPC_CONNECTION as any,
-    new Wallet(Keypair.generate() as any),
+    RPC_CONNECTION,
+    new Wallet(Keypair.generate()),
     AnchorProvider.defaultOptions(),
   ),
 );
 
-export const JUPITER_PERPETUALS_PROGRAM = new Program<PerpetualsIdl>(
-  IDL as PerpetualsIdl,
+export const JUPITER_PERPETUALS_PROGRAM = new Program<Perpetuals>(
+  IDL,
+  JUPITER_PERPETUALS_PROGRAM_ID,
   new AnchorProvider(
-    RPC_CONNECTION as any,
-    new Wallet(Keypair.generate() as any),
+    RPC_CONNECTION,
+    new Wallet(Keypair.generate()),
     AnchorProvider.defaultOptions(),
   ),
 );

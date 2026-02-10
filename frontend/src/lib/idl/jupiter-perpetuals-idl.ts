@@ -1,10 +1,4 @@
 export type Perpetuals = {
-  address: "PERPHjGBqRHArX4DySjwM6UJHiR3sWAatqfdBS2qQJu";
-  metadata: {
-    name: "perpetuals";
-    version: "0.1.0";
-    spec: "0.1.0";
-  };
   version: "0.1.0";
   name: "perpetuals";
   instructions: [
@@ -7235,12 +7229,6 @@ export type Perpetuals = {
 };
 
 export const IDL: Perpetuals = {
-  address: "PERPHjGBqRHArX4DySjwM6UJHiR3sWAatqfdBS2qQJu",
-  metadata: {
-    name: "perpetuals",
-    version: "0.1.0",
-    spec: "0.1.0",
-  },
   version: "0.1.0",
   name: "perpetuals",
   instructions: [
