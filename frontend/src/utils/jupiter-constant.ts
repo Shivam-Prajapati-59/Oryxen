@@ -1,10 +1,48 @@
-import { AnchorProvider, BN, Program, Wallet } from "@coral-xyz/anchor";
+import { AnchorProvider, BN, Program } from "@coral-xyz/anchor";
 import { IDL, type Perpetuals } from "@/lib/idl/jupiter-perpetuals-idl";
 import { IDL as DovesIDL, type Doves } from "@/lib/idl/doves-idl";
-import { Connection, Keypair, PublicKey } from "@solana/web3.js";
+import {
+  Connection,
+  Keypair,
+  PublicKey,
+  Transaction,
+  VersionedTransaction,
+} from "@solana/web3.js";
+
+/**
+ * Lightweight read-only wallet adapter that satisfies Anchor's wallet interface
+ * without importing the Node-only `Wallet` class (which is not available in ESM/SSR).
+ */
+class DummyWallet {
+  constructor(readonly payer: Keypair) {}
+
+  get publicKey(): PublicKey {
+    return this.payer.publicKey;
+  }
+
+  async signTransaction<T extends Transaction | VersionedTransaction>(
+    tx: T,
+  ): Promise<T> {
+    if (tx instanceof Transaction) {
+      tx.partialSign(this.payer);
+    }
+    return tx;
+  }
+
+  async signAllTransactions<T extends Transaction | VersionedTransaction>(
+    txs: T[],
+  ): Promise<T[]> {
+    for (const tx of txs) {
+      if (tx instanceof Transaction) {
+        tx.partialSign(this.payer);
+      }
+    }
+    return txs;
+  }
+}
 
 export const RPC_CONNECTION = new Connection(
-  process.env.RPC_URL || "https://api.mainnet-beta.solana.com",
+  process.env.RPC_URL || "https://api.devnet.solana.com",
 );
 
 export const DOVES_PROGRAM_ID = new PublicKey(
@@ -32,7 +70,7 @@ export const DOVES_PROGRAM = new Program<Doves>(
   DOVES_PROGRAM_ID,
   new AnchorProvider(
     RPC_CONNECTION,
-    new Wallet(Keypair.generate()),
+    new DummyWallet(Keypair.generate()),
     AnchorProvider.defaultOptions(),
   ),
 );
@@ -42,7 +80,7 @@ export const JUPITER_PERPETUALS_PROGRAM = new Program<Perpetuals>(
   JUPITER_PERPETUALS_PROGRAM_ID,
   new AnchorProvider(
     RPC_CONNECTION,
-    new Wallet(Keypair.generate()),
+    new DummyWallet(Keypair.generate()),
     AnchorProvider.defaultOptions(),
   ),
 );

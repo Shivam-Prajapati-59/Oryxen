@@ -4,6 +4,7 @@ import Container from "@/components/common/Container";
 import DemoDrift from "@/components/common/DemoDrift";
 import DemoFlash from "@/components/common/DemoFlash";
 import DemoPacifica from "@/components/common/DemoPacifica";
+import DemoJupiter from "@/components/demo/DemoJupiter";
 import TradingCard from "@/components/TradingCard/TradingCard";
 
 
@@ -15,7 +16,8 @@ export default function Home() {
       </div>
       {/* <DemoPacifica /> */}
       {/* <DemoDrift /> */}
-      <DemoFlash />
+      {/* <DemoFlash /> */}
+      <DemoJupiter />
     </Container>
   );
 }
