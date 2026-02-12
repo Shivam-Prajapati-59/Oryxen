@@ -6,17 +6,11 @@ import {
   VersionedTransaction,
 } from "@solana/web3.js";
 import { IDL, type Perpetuals } from "@/lib/idl/jupiter-perpetuals-idl";
+import { constructMarketOpenPositionTrade } from "../adapters/jupiter/create-market-trade";
 
 const RPC_URL =
   process.env.NEXT_PUBLIC_RPC_URL || "https://api.mainnet-beta.solana.com";
 
-const JUPITER_PERPETUALS_PROGRAM_ID = new PublicKey(
-  "PERPHjGBqRHArX4DySjwM6UJHiR3sWAatqfdBS2qQJu",
-);
-
-const PERPETUALS_PUBKEY = new PublicKey(
-  "H4ND9aYttUVLFmNypZqLjZ52FYiGvdEB45GmwNoKEjTj",
-);
 /** Validate base58 Solana address (exclude EVM 0x addresses) */
 export const isValidSolanaAddress = (address: string): boolean => {
   if (!address || address.startsWith("0x")) return false;
@@ -36,7 +30,7 @@ const isVersionedTransaction = (
 
 /**
  * Wraps a Privy wallet into an Anchor-compatible wallet interface so the
- * Flash SDK PerpetualsClient can sign transactions through Privy.
+ * Jupiter perps PerpetualsClient can sign transactions through Privy.
  */
 export const createPrivyWalletAdapter = (
   privyWallet: any,
@@ -116,4 +110,9 @@ export const initializePerpsClient = (privyWallet: any, config: "") => {
     commitment: "processed",
     skipPreflight: true,
   });
+};
+
+// TODO: Implement OpenPosition using constructMarketOpenPositionTrade
+export const openPosition = async (): Promise<void> => {
+  throw new Error("OpenPosition not yet implemented");
 };

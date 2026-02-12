@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 import { PublicKey } from "@solana/web3.js";
 import { Button } from "../ui/button";
@@ -15,7 +15,8 @@ import {
     X,
     Coins,
 } from "lucide-react";
-import { useJupiterPerps } from "@/hooks/protocols/useJupiterPerps";
+import { useJupiter } from "@/hooks/protocols/useJupiter";
+import { usePriceFeed } from "@/hooks/usePriceFeed";
 import { BNToUSDRepresentation } from "@/utils/jupiter";
 
 // ─── Constants ──────────────────────────────────────────────────────
@@ -34,7 +35,20 @@ const DemoJupiter = () => {
     const [direction, setDirection] = useState<"long" | "short">("long");
     const [collateralAmount, setCollateralAmount] = useState<string>("0.1");
     const [leverage, setLeverage] = useState<number>(1.1);
-    const [closeReceiveMint, setCloseReceiveMint] = useState<string>("SOL");
+
+    // Per-position close-receive mint state (keyed by position pubkey string)
+    const [closeReceiveMints, setCloseReceiveMints] = useState<Record<string, string>>({});
+
+    const getCloseReceiveMint = useCallback(
+        (positionKey: string) => closeReceiveMints[positionKey] || "SOL",
+        [closeReceiveMints],
+    );
+
+    const setCloseReceiveMint = useCallback(
+        (positionKey: string, mint: string) =>
+            setCloseReceiveMints((prev) => ({ ...prev, [positionKey]: mint })),
+        [],
+    );
 
     // Hook
     const {
@@ -54,13 +68,22 @@ const DemoJupiter = () => {
         fetchCustodies,
         openPosition,
         closePosition,
-    } = useJupiterPerps();
+    } = useJupiter();
 
-    // Derived: notional size in USD (rough estimate, user should know the price)
+    // Live price feed for the selected collateral token
+    const { prices } = usePriceFeed([collateralToken]);
+    const collateralPriceUsd = prices[collateralToken] ?? 0;
+
+    // Derived: notional size in USD = amount * price * leverage
     const sizeUsd = useMemo(() => {
         const amt = parseFloat(collateralAmount) || 0;
-        return amt * leverage;
-    }, [collateralAmount, leverage]);
+        // For stablecoins the price feed may not be available; default to $1
+        const price =
+            collateralToken === "USDC" || collateralToken === "USDT"
+                ? 1
+                : collateralPriceUsd;
+        return amt * price * leverage;
+    }, [collateralAmount, leverage, collateralPriceUsd, collateralToken]);
 
     // ─── Handlers ─────────────────────────────────────────────────────
     const handleInitialize = async () => {
@@ -88,10 +111,10 @@ const DemoJupiter = () => {
         });
     };
 
-    const handleClosePosition = async (positionPubkey: PublicKey) => {
+    const handleClosePosition = async (positionPubkey: PublicKey, desiredMintSymbol: string) => {
         await closePosition({
             positionPubkey,
-            desiredMintSymbol: closeReceiveMint,
+            desiredMintSymbol,
         });
     };
 
@@ -323,8 +346,13 @@ const DemoJupiter = () => {
                                         {/* Close controls */}
                                         <div className="flex items-center gap-2">
                                             <select
-                                                value={closeReceiveMint}
-                                                onChange={(e) => setCloseReceiveMint(e.target.value)}
+                                                value={getCloseReceiveMint(pos.publicKey.toString())}
+                                                onChange={(e) =>
+                                                    setCloseReceiveMint(
+                                                        pos.publicKey.toString(),
+                                                        e.target.value,
+                                                    )
+                                                }
                                                 className="rounded-md border bg-background px-2 py-1 text-xs"
                                             >
                                                 {RECEIVE_TOKENS.map((t) => (
@@ -337,7 +365,12 @@ const DemoJupiter = () => {
                                                 variant="destructive"
                                                 size="sm"
                                                 disabled={isTrading}
-                                                onClick={() => handleClosePosition(pos.publicKey)}
+                                                onClick={() =>
+                                                    handleClosePosition(
+                                                        pos.publicKey,
+                                                        getCloseReceiveMint(pos.publicKey.toString()),
+                                                    )
+                                                }
                                             >
                                                 {isTrading ? (
                                                     <Loader2 className="h-3 w-3 animate-spin" />
@@ -519,8 +552,8 @@ const DemoJupiter = () => {
                             parseFloat(collateralAmount) <= 0
                         }
                         className={`w-full ${direction === "long"
-                                ? "bg-green-600 hover:bg-green-700"
-                                : "bg-red-600 hover:bg-red-700"
+                            ? "bg-green-600 hover:bg-green-700"
+                            : "bg-red-600 hover:bg-red-700"
                             }`}
                     >
                         {isTrading ? (

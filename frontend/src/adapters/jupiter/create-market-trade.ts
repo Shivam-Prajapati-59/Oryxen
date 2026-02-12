@@ -21,15 +21,14 @@ import {
 } from "@solana/spl-token";
 import {
   JLP_POOL_ACCOUNT_PUBKEY,
-  JUPITER_PERPETUALS_PROGRAM,
   JUPITER_PERPETUALS_PROGRAM_ID,
-  RPC_CONNECTION,
 } from "@/utils/jupiter-constant";
 
 export async function constructMarketOpenPositionTrade({
   custody,
   collateralCustody,
   collateralTokenDelta,
+  connection,
   inputMint,
   jupiterMinimumOut,
   owner,
@@ -43,6 +42,7 @@ export async function constructMarketOpenPositionTrade({
   custody: CustodyAccount;
   collateralCustody: CustodyAccount;
   collateralTokenDelta: BN;
+  connection: import("@solana/web3.js").Connection;
   inputMint: PublicKey;
   jupiterMinimumOut: BN | null;
   owner: PublicKey;
@@ -147,7 +147,7 @@ export async function constructMarketOpenPositionTrade({
   );
 
   // Run simulation
-  const simulation = await RPC_CONNECTION.simulateTransaction(simulateTx, {
+  const simulation = await connection.simulateTransaction(simulateTx, {
     replaceRecentBlockhash: true,
     sigVerify: false,
   });
@@ -183,6 +183,7 @@ export async function constructMarketOpenPositionTrade({
 }
 
 export async function constructMarketClosePositionTrade({
+  connection,
   desiredMint,
   program,
   recentBlockhash,
@@ -190,6 +191,7 @@ export async function constructMarketClosePositionTrade({
   priceSlippage,
   jupiterMinimumOut,
 }: {
+  connection: import("@solana/web3.js").Connection;
   desiredMint: PublicKey;
   program: Program<Perpetuals>;
   recentBlockhash: Blockhash;
@@ -197,9 +199,7 @@ export async function constructMarketClosePositionTrade({
   priceSlippage: BN;
   jupiterMinimumOut: BN | null;
 }) {
-  const position = await JUPITER_PERPETUALS_PROGRAM.account.position.fetch(
-    positionPubkey,
-  );
+  const position = await program.account.position.fetch(positionPubkey);
 
   // Generate request PDA
   const { positionRequest, counter } = generatePositionRequestPda({
@@ -291,7 +291,7 @@ export async function constructMarketClosePositionTrade({
   );
 
   // Run simulation
-  const simulation = await RPC_CONNECTION.simulateTransaction(simulateTx, {
+  const simulation = await connection.simulateTransaction(simulateTx, {
     replaceRecentBlockhash: true,
     sigVerify: false,
   });
@@ -321,7 +321,6 @@ export async function constructMarketClosePositionTrade({
   }).compileToV0Message();
 
   const tx = new VersionedTransaction(txMessage);
-  console.log(tx);
 
   return tx;
 }

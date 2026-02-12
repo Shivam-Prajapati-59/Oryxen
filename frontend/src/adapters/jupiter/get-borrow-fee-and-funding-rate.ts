@@ -1,5 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
-import { BN } from "@coral-xyz/anchor";
+import { BN, Program } from "@coral-xyz/anchor";
 import {
   BPS_POWER,
   DBPS_POWER,
@@ -10,6 +10,7 @@ import {
 } from "@/utils/jupiter-constant";
 import { BNToUSDRepresentation, divCeil } from "@/utils/jupiter";
 import { Custody } from "@/types/jupiter";
+import type { Perpetuals } from "@/lib/idl/jupiter-perpetuals-idl";
 
 const HOURS_IN_A_YEAR = 24 * 365;
 
@@ -21,14 +22,12 @@ enum BorrowRateMechanism {
 export const getBorrowFee = async (
   positionPubkey: PublicKey | string,
   curtime: BN,
+  program?: Program<Perpetuals>,
 ) => {
-  const position = await JUPITER_PERPETUALS_PROGRAM.account.position.fetch(
-    positionPubkey,
-  );
+  const prog = program ?? JUPITER_PERPETUALS_PROGRAM;
+  const position = await prog.account.position.fetch(positionPubkey);
 
-  const custody = await JUPITER_PERPETUALS_PROGRAM.account.custody.fetch(
-    position.custody,
-  );
+  const custody = await prog.account.custody.fetch(position.custody);
 
   if (position.sizeUsd.eqn(0)) return new BN(0);
 
@@ -43,6 +42,8 @@ export const getBorrowFee = async (
     "Outstanding borrow fee ($): ",
     BNToUSDRepresentation(borrowFee, USDC_DECIMALS),
   );
+
+  return borrowFee;
 };
 
 export function getBorrowRateMechanism(custody: Custody) {
