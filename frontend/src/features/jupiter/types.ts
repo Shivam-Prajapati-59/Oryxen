@@ -1,8 +1,4 @@
-/**
- * Jupiter Perpetuals — TypeScript types derived from the on-chain IDL.
- *
- * Consolidated from `types/jupiter.ts` into the Jupiter feature module.
- */
+//  Jupiter Perpetuals — TypeScript types derived from the on-chain IDL.
 
 import type { IdlAccounts, ProgramAccount, IdlTypes } from "@coral-xyz/anchor";
 import { type Perpetuals } from "@/lib/idl/jupiter-perpetuals-idl";

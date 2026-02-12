@@ -18,7 +18,7 @@ const ibmPlexSans = IBM_Plex_Sans({
 
 export const metadata: Metadata = {
   title: "Oryxen",
-  description: "DeFi perpetuals trading aggregator",
+  description: "Solana DeFi perpetuals trading aggregator",
 };
 
 export default function RootLayout({

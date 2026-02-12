@@ -1,9 +1,9 @@
 "use client";
 
 import Container from "@/components/common/Container";
-import DemoDrift from "@/components/common/DemoDrift";
-import DemoFlash from "@/components/common/DemoFlash";
-import DemoPacifica from "@/components/common/DemoPacifica";
+import DemoDrift from "@/components/demo/DemoDrift";
+import DemoFlash from "@/components/demo/DemoFlash";
+import DemoPacifica from "@/components/demo/DemoPacifica";
 import DemoJupiter from "@/components/demo/DemoJupiter";
 import TradingCard from "@/components/TradingCard/TradingCard";
 

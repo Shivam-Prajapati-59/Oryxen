@@ -29,7 +29,7 @@ import {
   toPositionDirection,
   getTriggerCondition,
   TradeResult,
-} from "@/types/drift";
+} from "../types";
 import { isValidSolanaAddress, createPrivyWalletAdapter } from "@/lib/solana";
 import {
   DRIFT_ENV,
