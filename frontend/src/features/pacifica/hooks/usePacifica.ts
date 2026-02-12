@@ -3,20 +3,19 @@
 import { useState, useCallback, useMemo, useRef } from "react";
 import { useWallets, useSignMessage } from "@privy-io/react-auth/solana";
 import { Keypair } from "@solana/web3.js";
-import bs58 from "bs58";
 import nacl from "tweetnacl";
 import {
   prepareMessage,
   encodeSignature,
-  API_BASE_URL,
   type SignatureHeader,
-} from "@/lib/pacifica";
-import type { OrderSide } from "@/types/pacifica";
+} from "../adapter/signing";
+import type { OrderSide } from "../types";
+import { isValidSolanaAddress } from "@/lib/solana";
 
 // ─── Types ───────────────────────────────────────────────────────────
 interface AgentWalletState {
   publicKey: string;
-  secretKey: Uint8Array; // We need the secret key to sign market orders locally
+  secretKey: Uint8Array;
 }
 
 interface MarketOrderParams {
@@ -35,16 +34,6 @@ interface PacificaState {
   orderError: string | null;
   lastOrderResult: any | null;
   lastBindResult: any | null;
-}
-
-// ─── Helper: find first Solana wallet ────────────────────────────────
-function isValidSolanaAddress(address: string): boolean {
-  try {
-    // Solana addresses are base58 encoded and 32-44 chars
-    return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address);
-  } catch {
-    return false;
-  }
 }
 
 /**
@@ -72,10 +61,8 @@ export function usePacifica() {
     lastBindResult: null,
   });
 
-  // Persist agent keypair across renders without triggering re-renders
   const agentKeypairRef = useRef<Keypair | null>(null);
 
-  // Get the first Solana wallet from Privy
   const solanaWallet = useMemo(() => {
     const w = wallets.find((w) => isValidSolanaAddress(w.address));
     return w || null;
@@ -98,11 +85,9 @@ export function usePacifica() {
     try {
       const masterPublicKey = solanaWallet.address;
 
-      // 1. Generate a NEW agent keypair
       const agentKeypair = Keypair.generate();
       const agentPublicKey = agentKeypair.publicKey.toBase58();
 
-      // 2. Build the signature header & payload
       const timestamp = Date.now();
       const header: SignatureHeader = {
         timestamp,
@@ -114,23 +99,18 @@ export function usePacifica() {
         agent_wallet: agentPublicKey,
       };
 
-      // 3. Prepare the message string (matches Python SDK format)
       const messageString = prepareMessage(header, payload);
       const messageBytes = new TextEncoder().encode(messageString);
 
-      // 4. Sign with user's wallet via Privy's signMessage
-      //    Privy returns { signature: Uint8Array }
       const signResult = await signMessage({
         message: messageBytes,
         wallet: solanaWallet,
       });
 
-      // signResult.signature is a Uint8Array
       const signatureBase58 = encodeSignature(
         new Uint8Array(signResult.signature),
       );
 
-      // 5. Build the full request body
       const requestBody = {
         account: masterPublicKey,
         signature: signatureBase58,
@@ -139,7 +119,6 @@ export function usePacifica() {
         agent_wallet: agentPublicKey,
       };
 
-      // 6. Send bind request to Pacifica API via our proxy
       const response = await fetch("/api/pacifica/bind-agent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -152,7 +131,6 @@ export function usePacifica() {
         throw new Error(data.error || `Bind failed: ${response.status}`);
       }
 
-      // 7. Store the agent keypair for signing future orders
       agentKeypairRef.current = agentKeypair;
 
       setState((s) => ({
@@ -165,10 +143,10 @@ export function usePacifica() {
         lastBindResult: data,
       }));
 
-      console.log("✅ Agent wallet bound:", agentPublicKey);
+      console.log("Agent wallet bound:", agentPublicKey);
       return data;
     } catch (err: any) {
-      console.error("❌ Bind agent failed:", err);
+      console.error("Bind agent failed:", err);
       setState((s) => ({
         ...s,
         isBindingAgent: false,
@@ -204,7 +182,6 @@ export function usePacifica() {
         const agentKeypair = agentKeypairRef.current;
         const agentPublicKey = state.agentWallet.publicKey;
 
-        // 1. Build the signature header
         const timestamp = Date.now();
         const header: SignatureHeader = {
           timestamp,
@@ -212,7 +189,6 @@ export function usePacifica() {
           type: "create_market_order",
         };
 
-        // 2. Build the signature payload
         const clientOrderId = crypto.randomUUID();
         const signaturePayload: Record<string, any> = {
           symbol: params.symbol,
@@ -223,7 +199,6 @@ export function usePacifica() {
           client_order_id: clientOrderId,
         };
 
-        // 3. Prepare message and sign with AGENT KEY (local nacl)
         const messageString = prepareMessage(header, signaturePayload);
         const messageBytes = new TextEncoder().encode(messageString);
         const signatureBytes = nacl.sign.detached(
@@ -232,17 +207,15 @@ export function usePacifica() {
         );
         const signatureBase58 = encodeSignature(signatureBytes);
 
-        // 4. Build the request body
         const requestBody = {
           account: masterPublicKey,
-          agent_wallet: agentPublicKey, // Agent wallet public key
+          agent_wallet: agentPublicKey,
           signature: signatureBase58,
           timestamp: header.timestamp,
           expiry_window: header.expiry_window,
           ...signaturePayload,
         };
 
-        // 5. Send order via our API proxy route
         const response = await fetch("/api/pacifica/create-order", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -261,10 +234,10 @@ export function usePacifica() {
           lastOrderResult: data,
         }));
 
-        console.log("✅ Market order placed:", data);
+        console.log("Market order placed:", data);
         return data;
       } catch (err: any) {
-        console.error("❌ Place order failed:", err);
+        console.error("Place order failed:", err);
         setState((s) => ({
           ...s,
           isPlacingOrder: false,

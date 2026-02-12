@@ -1,14 +1,14 @@
-// lib/pacifica.ts
-// Utility functions for Pacifica API signing and message construction
-// Based on: https://github.com/pacifica-fi/python-sdk/blob/main/common/utils.py
+/**
+ * Pacifica — API signing utilities.
+ *
+ * Moved from `lib/pacifica.ts`. Mirrors the Pacifica Python SDK's
+ * `prepare_message` and `encode_signature` functions.
+ */
 
 import bs58 from "bs58";
+import { PACIFICA_API_URL } from "../constants";
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_PACIFICA_API_URL ||
-  "https://test-api.pacifica.fi/api/v1";
-
-export { API_BASE_URL };
+export { PACIFICA_API_URL };
 
 // ─── Signature Header ────────────────────────────────────────────────
 export interface SignatureHeader {

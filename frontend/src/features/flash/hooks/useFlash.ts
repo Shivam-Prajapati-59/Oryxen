@@ -2,23 +2,21 @@
 
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { useWallets } from "@privy-io/react-auth/solana";
-import { Connection } from "@solana/web3.js";
 import type { PerpetualsClient, PoolConfig } from "flash-sdk";
-import { Side } from "flash-sdk";
 import {
   createFlashClient,
-  isValidSolanaAddress,
-  FLASH_CONFIG,
   openPositionWithSwap as adapterOpenPositionWithSwap,
   openPosition as adapterOpenPosition,
   getAvailableTokens,
-} from "@/adapters/flash";
+} from "../adapter/flash-client";
+import { FLASH_CONFIG } from "../constants";
 import type {
   FlashClientState,
   FlashTradeResult,
   TradeDirection,
-} from "@/types/flash";
-import { toFlashSide } from "@/types/flash";
+} from "../types";
+import { toFlashSide } from "../types";
+import { isValidSolanaAddress } from "@/lib/solana";
 
 export function useFlash() {
   const { wallets } = useWallets();
@@ -31,7 +29,6 @@ export function useFlash() {
     error: null,
   });
 
-  // Trading state
   const [isTrading, setIsTrading] = useState(false);
   const [tradeError, setTradeError] = useState<string | null>(null);
   const [lastTradeResult, setLastTradeResult] =
@@ -42,7 +39,6 @@ export function useFlash() {
   const isInitializingRef = useRef(false);
   const isMountedRef = useRef(true);
 
-  // Find the first connected Solana wallet from Privy
   const privyWallet = useMemo(() => {
     return wallets.find((w) => isValidSolanaAddress(w.address)) ?? null;
   }, [wallets]);
@@ -53,7 +49,6 @@ export function useFlash() {
       return null;
     }
 
-    // Prevent duplicate initializations
     if (isInitializingRef.current || clientRef.current) {
       return clientRef.current;
     }
@@ -62,16 +57,13 @@ export function useFlash() {
     setState((s) => ({ ...s, isLoading: true, error: null }));
 
     try {
-      // 1. Create the Flash client, pool config, and connection
       const { client, poolConfig } = createFlashClient(
         privyWallet,
         FLASH_CONFIG,
       );
 
-      // 2. Load the Address Lookup Tables (required for composable txs)
       await client.loadAddressLookupTable(poolConfig);
 
-      // 3. Store refs
       clientRef.current = client;
       poolConfigRef.current = poolConfig;
 
@@ -136,10 +128,7 @@ export function useFlash() {
 
         let txSignature: string;
 
-        // Use openPosition when input and target tokens are the same,
-        // otherwise use openPositionWithSwap for different collateral
         if (params.inputTokenSymbol === params.targetTokenSymbol) {
-          // Same collateral - use openPosition
           txSignature = await adapterOpenPosition(
             client,
             poolConfig,
@@ -151,7 +140,6 @@ export function useFlash() {
             params.slippageBps,
           );
         } else {
-          // Different collateral - use swap and open
           txSignature = await adapterOpenPositionWithSwap(
             client,
             poolConfig,
@@ -190,9 +178,6 @@ export function useFlash() {
     [],
   );
 
-  /**
-   * Disconnect / cleanup the Flash client.
-   */
   const disconnect = useCallback(() => {
     clientRef.current = null;
     poolConfigRef.current = null;
@@ -210,22 +195,15 @@ export function useFlash() {
     setLastTradeResult(null);
   }, []);
 
-  /**
-   * Get tokens available in the current pool config.
-   */
   const getPoolTokens = useCallback(() => {
     if (!poolConfigRef.current) return [];
     return getAvailableTokens(poolConfigRef.current);
   }, []);
 
-  /**
-   * Get market configs available in the current pool.
-   */
   const getMarkets = useCallback(() => {
     return poolConfigRef.current?.markets ?? [];
   }, []);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       isMountedRef.current = false;

@@ -15,9 +15,8 @@ import {
     X,
     Coins,
 } from "lucide-react";
-import { useJupiter } from "@/hooks/protocols/useJupiter";
+import { useJupiter, BNToUSDRepresentation } from "@/features/jupiter";
 import { usePriceFeed } from "@/hooks/usePriceFeed";
-import { BNToUSDRepresentation } from "@/utils/jupiter";
 
 // ─── Constants ──────────────────────────────────────────────────────
 const TARGET_TOKENS = ["SOL", "BTC", "ETH"] as const;

@@ -4,7 +4,7 @@ import { Perpetuals } from "@/lib/idl/jupiter-perpetuals-idl";
 import {
   JUPITER_PERPETUALS_PROGRAM,
   RPC_CONNECTION,
-} from "@/utils/jupiter-constant";
+} from "@/features/jupiter/constants";
 
 /**
  * Fetch all open positions for a wallet.

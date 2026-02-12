@@ -2,6 +2,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { API_BASE_URL } from "@/config/env";
 
 export interface PerpData {
   name: string;
@@ -16,8 +17,6 @@ interface PerpsResponse {
   timestamp: number;
   count: number;
 }
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
 
 async function fetchPerps(): Promise<PerpData[]> {
   const response = await fetch(`${API_BASE_URL}/api/perps/list`);
@@ -54,7 +53,7 @@ export function usePerpsByProtocol(protocol?: string) {
       const perps = await fetchPerps();
       if (!protocol) return perps;
       return perps.filter((perp) =>
-        perp.protocol.toLowerCase().includes(protocol.toLowerCase())
+        perp.protocol.toLowerCase().includes(protocol.toLowerCase()),
       );
     },
     staleTime: 5 * 60 * 1000,

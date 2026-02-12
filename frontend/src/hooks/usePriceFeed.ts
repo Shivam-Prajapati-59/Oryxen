@@ -1,8 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { WebSocketClient } from "@/lib/websocket/webSocketClient";
-
-const WS_URL = "ws://localhost:5000/ws";
+import { WS_URL } from "@/config/env";
 
 export const usePriceFeed = (symbols: string[] = []) => {
   const queryClient = useQueryClient();

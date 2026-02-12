@@ -5,8 +5,8 @@ import { usePrivy } from "@privy-io/react-auth";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Loader2, TrendingUp, TrendingDown, Info, AlertTriangle } from "lucide-react";
-import { useDrift } from "@/hooks/protocols/useDrift";
-import { OrderVariant, TradeDirection } from "@/types/drift";
+import { useDrift } from "@/features/drift";
+import type { OrderVariant, TradeDirection } from "@/features/drift";
 
 // Environment configuration
 const DRIFT_ENV = "devnet"; // Change to "mainnet-beta" for production

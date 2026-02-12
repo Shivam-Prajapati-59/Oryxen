@@ -7,7 +7,8 @@ import { ThemeToggleButton } from '../custom/ThemeToggle';
 // import { MobileNav } from '../common/Mobile-Nav';
 import Image from 'next/image';
 import { useState } from 'react';
-import ConnectWallet from '../common/ConnectWallet';
+import ConnectWallet from '../wallet/ConnectWallet';
+
 
 export default function Navbar() {
     const [searchOpen, setSearchOpen] = useState(false);

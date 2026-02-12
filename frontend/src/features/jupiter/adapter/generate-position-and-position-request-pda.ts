@@ -3,7 +3,7 @@ import { PublicKey } from "@solana/web3.js";
 import {
   JLP_POOL_ACCOUNT_PUBKEY,
   JUPITER_PERPETUALS_PROGRAM_ID,
-} from "@/utils/jupiter-constant";
+} from "@/features/jupiter/constants";
 
 // The `positionRequest` PDA holds the requests for all the perpetuals actions.
 // https://station.jup.ag/guides/perpetual-exchange/onchain-accounts#positionrequest-account

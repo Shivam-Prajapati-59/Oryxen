@@ -4,7 +4,7 @@ import { Perpetuals } from "@/lib/idl/jupiter-perpetuals-idl";
 import {
   CUSTODY_PUBKEY,
   JUPITER_PERPETUALS_PROGRAM,
-} from "@/utils/jupiter-constant";
+} from "@/features/jupiter/constants";
 
 const CUSTODY_SYMBOLS: Record<string, string> = {
   [CUSTODY_PUBKEY.SOL]: "SOL",

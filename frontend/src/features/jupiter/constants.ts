@@ -1,3 +1,9 @@
+/**
+ * Jupiter Perpetuals — on-chain constants, program instances, and token mappings.
+ *
+ * Moved from `utils/jupiter-constant.ts` into the Jupiter feature module.
+ */
+
 import { AnchorProvider, BN, Program } from "@coral-xyz/anchor";
 import { IDL, type Perpetuals } from "@/lib/idl/jupiter-perpetuals-idl";
 import { IDL as DovesIDL, type Doves } from "@/lib/idl/doves-idl";
@@ -8,11 +14,10 @@ import {
   Transaction,
   VersionedTransaction,
 } from "@solana/web3.js";
+import { SOLANA_MAINNET_RPC } from "@/config/env";
 
-/**
- * Lightweight read-only wallet adapter that satisfies Anchor's wallet interface
- * without importing the Node-only `Wallet` class (which is not available in ESM/SSR).
- */
+// ─── Read-only wallet for public data fetches ────────────────────────
+
 class DummyWallet {
   constructor(readonly payer: Keypair) {}
 
@@ -45,17 +50,11 @@ class DummyWallet {
   }
 }
 
-/**
- * Mainnet-beta RPC used by Jupiter Perpetuals.
- * Uses NEXT_PUBLIC_ prefix so the value is available in the browser.
- * Falls back to the public (rate-limited) mainnet endpoint.
- */
-const MAINNET_RPC_URL =
-  process.env.NEXT_PUBLIC_SOLANA_RPC_URL ||
-  process.env.NEXT_PUBLIC_RPC_URL ||
-  "https://api.mainnet-beta.solana.com";
+// ─── Connection ──────────────────────────────────────────────────────
 
-export const RPC_CONNECTION = new Connection(MAINNET_RPC_URL, "confirmed");
+export const RPC_CONNECTION = new Connection(SOLANA_MAINNET_RPC, "confirmed");
+
+// ─── Program IDs ─────────────────────────────────────────────────────
 
 export const DOVES_PROGRAM_ID = new PublicKey(
   "DoVEsk76QybCEHQGzkvYPWLQu9gzNoZZZt3TPiL597e",
@@ -77,6 +76,8 @@ export const JLP_MINT_PUBKEY = new PublicKey(
   "27G8MtK7VtTcCHkpASjSDdkWWYfoqT6ggEuKidVJidD4",
 );
 
+// ─── Read-only program instances ─────────────────────────────────────
+
 export const DOVES_PROGRAM = new Program<Doves>(
   DovesIDL,
   DOVES_PROGRAM_ID,
@@ -97,6 +98,8 @@ export const JUPITER_PERPETUALS_PROGRAM = new Program<Perpetuals>(
   ),
 );
 
+// ─── Custody public keys ─────────────────────────────────────────────
+
 export enum CUSTODY_PUBKEY {
   SOL = "7xS2gz2bTp3fwCC7knJvUWTEU9Tycczu6VhJYKgi1wdz",
   ETH = "AQCGyheWPLeo6Qp9WpYS9m3Qj479t7R636N9ey1rEjEn",
@@ -112,6 +115,8 @@ export const CUSTODY_PUBKEYS = [
   new PublicKey(CUSTODY_PUBKEY.USDC),
   new PublicKey(CUSTODY_PUBKEY.USDT),
 ];
+
+// ─── Decimal / precision constants ───────────────────────────────────
 
 export const USDC_DECIMALS = 6;
 export const BPS_POWER = new BN(10_000);
@@ -139,6 +144,8 @@ export function getTokenDecimals(symbol: string): number {
   return decimals;
 }
 
+// ─── Mint mapping ────────────────────────────────────────────────────
+
 export const CUSTODY_MINTS: Record<string, PublicKey> = {
   SOL: new PublicKey("So11111111111111111111111111111111111111112"),
   ETH: new PublicKey("7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs"),
@@ -147,7 +154,7 @@ export const CUSTODY_MINTS: Record<string, PublicKey> = {
   USDT: new PublicKey("Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"),
 };
 
-// [ADD THIS] Helper to reverse map Mint -> Symbol (Useful for UI display)
+/** Reverse map: Mint address → Symbol (useful for UI display) */
 export const MINT_TO_SYMBOL: Record<string, string> = {
   So11111111111111111111111111111111111111112: "SOL",
   "7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs": "ETH",

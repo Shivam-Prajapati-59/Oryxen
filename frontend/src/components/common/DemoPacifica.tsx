@@ -13,9 +13,8 @@ import {
     CheckCircle2,
     KeyRound,
 } from "lucide-react";
-import { usePacifica } from "@/hooks/protocols/usePacifica";
-import { PACIFICA_SYMBOLS } from "@/adapters/pacifica";
-import type { OrderSide } from "@/types/pacifica";
+import { usePacifica, PACIFICA_SYMBOLS } from "@/features/pacifica";
+import type { OrderSide } from "@/features/pacifica";
 
 const DemoPacifica = () => {
     const { authenticated, login, ready } = usePrivy();

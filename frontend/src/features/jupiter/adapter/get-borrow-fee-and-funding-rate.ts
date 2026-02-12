@@ -7,9 +7,9 @@ import {
   JUPITER_PERPETUALS_PROGRAM,
   RATE_POWER,
   USDC_DECIMALS,
-} from "@/utils/jupiter-constant";
-import { BNToUSDRepresentation, divCeil } from "@/utils/jupiter";
-import { Custody } from "@/types/jupiter";
+} from "@/features/jupiter/constants";
+import { BNToUSDRepresentation, divCeil } from "@/features/jupiter/utils";
+import { Custody } from "@/features/jupiter/types";
 import type { Perpetuals } from "@/lib/idl/jupiter-perpetuals-idl";
 
 const HOURS_IN_A_YEAR = 24 * 365;

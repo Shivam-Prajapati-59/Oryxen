@@ -5,74 +5,44 @@ import { useWallets } from "@privy-io/react-auth/solana";
 import { AnchorProvider, BN, Program } from "@coral-xyz/anchor";
 import { Connection, PublicKey, VersionedTransaction } from "@solana/web3.js";
 import { IDL, type Perpetuals } from "@/lib/idl/jupiter-perpetuals-idl";
-import type { Custody, CustodyAccount } from "@/types/jupiter";
+import type { Custody, CustodyAccount } from "@/features/jupiter/types";
 import {
   getHourlyBorrowRate,
   getBorrowApr,
   getBorrowFee,
-} from "@/adapters/jupiter/get-borrow-fee-and-funding-rate";
+} from "@/features/jupiter/adapter/get-borrow-fee-and-funding-rate";
 import {
   CUSTODY_PUBKEY,
   CUSTODY_MINTS,
   JUPITER_PERPETUALS_PROGRAM_ID,
   getTokenDecimals,
-} from "@/utils/jupiter-constant";
+} from "@/features/jupiter/constants";
 import {
   createPrivyWalletAdapter,
   isValidSolanaAddress,
-} from "@/adapters/jupiter";
-import { getCustodyData } from "@/adapters/jupiter/get-custody-data";
+  parseTokenAmount,
+} from "@/lib/solana";
+import { getCustodyData } from "@/features/jupiter/adapter/get-custody-data";
 import {
   constructMarketOpenPositionTrade,
   constructMarketClosePositionTrade,
-} from "@/adapters/jupiter/create-market-trade";
-import { generatePositionPda } from "@/adapters/jupiter/generate-position-and-position-request-pda";
-import { getOpenPositionsForWallet } from "@/adapters/jupiter/get-open-positions";
+} from "@/features/jupiter/adapter/create-market-trade";
+import { generatePositionPda } from "@/features/jupiter/adapter/generate-position-and-position-request-pda";
+import { getOpenPositionsForWallet } from "@/features/jupiter/adapter/get-open-positions";
 import { NATIVE_MINT } from "@solana/spl-token";
-import { getDynamicPriceSlippage, getJupiterMinimumOut } from "@/utils/jupiter";
+import {
+  getDynamicPriceSlippage,
+  getJupiterMinimumOut,
+} from "@/features/jupiter/utils";
+import { SOLANA_MAINNET_RPC } from "@/config/env";
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
 /** Default timeout for transaction confirmation (60 seconds) */
 const TX_CONFIRM_TIMEOUT_MS = 60_000;
 
-/**
- * Convert a decimal number string to a BN with the given on-chain decimals.
- * Uses string manipulation to avoid floating-point precision loss.
- */
-function parseTokenAmount(amountStr: string, decimals: number): BN {
-  // Normalise: remove leading/trailing whitespace
-  amountStr = amountStr.trim();
-  if (amountStr === "" || isNaN(Number(amountStr))) {
-    throw new Error(`Invalid amount: "${amountStr}"`);
-  }
-
-  const negative = amountStr.startsWith("-");
-  if (negative) amountStr = amountStr.slice(1);
-
-  const [intPart, fracPart = ""] = amountStr.split(".");
-  // Pad or truncate fractional part to `decimals` digits
-  const paddedFrac = fracPart.padEnd(decimals, "0").slice(0, decimals);
-  const raw = intPart + paddedFrac;
-  // Strip leading zeros but keep at least "0"
-  const cleaned = raw.replace(/^0+/, "") || "0";
-  return negative ? new BN(cleaned).neg() : new BN(cleaned);
-}
-
 // ─── Types ────────────────────────────────────────────────────────
 
-// ─── Constants ────────────────────────────────────────────────────
-
-/**
- * Jupiter Perpetuals only exists on mainnet-beta.
- * Always use a mainnet RPC regardless of the general NEXT_PUBLIC_RPC_URL
- * (which may point to devnet for other parts of the app).
- */
-const JUPITER_MAINNET_RPC =
-  process.env.NEXT_PUBLIC_SOLANA_RPC_URL ||
-  "https://api.mainnet-beta.solana.com";
-
-// Configuration interface
 export interface JupiterPerpsConfig {
   cluster: "mainnet-beta";
   rpcUrl: string;
@@ -120,7 +90,7 @@ export function useJupiter() {
   const providerRef = useRef<AnchorProvider | null>(null);
   const configRef = useRef<JupiterPerpsConfig>({
     cluster: "mainnet-beta",
-    rpcUrl: JUPITER_MAINNET_RPC,
+    rpcUrl: SOLANA_MAINNET_RPC,
   });
 
   const config = configRef.current;
@@ -142,17 +112,14 @@ export function useJupiter() {
       const connection = new Connection(config.rpcUrl, "confirmed");
       connectionRef.current = connection;
 
-      // Create Adapter
       const anchorWallet = createPrivyWalletAdapter(privyWallet, config.rpcUrl);
 
-      // Create Provider
       const provider = new AnchorProvider(connection, anchorWallet as any, {
         commitment: "confirmed",
         skipPreflight: true,
       });
       providerRef.current = provider;
 
-      // Instantiate and store the Program
       const program = new Program(IDL, JUPITER_PERPETUALS_PROGRAM_ID, provider);
       programRef.current = program;
 
@@ -227,8 +194,8 @@ export function useJupiter() {
       collateralAmount,
       leverageMultiplier,
     }: {
-      targetSymbol: string; // e.g. "SOL", "BTC", "ETH"
-      collateralSymbol: string; // e.g. "SOL", "USDC", "USDT"
+      targetSymbol: string;
+      collateralSymbol: string;
       side: "long" | "short";
       sizeUsd: number;
       collateralAmount: number;
@@ -247,7 +214,6 @@ export function useJupiter() {
         const program = programRef.current;
         const connection = connectionRef.current;
 
-        // 1. Validate & resolve Pubkeys
         if (!(targetSymbol in CUSTODY_PUBKEY)) {
           throw new Error(
             `Invalid target symbol "${targetSymbol}". Valid symbols: ${Object.keys(
@@ -280,36 +246,28 @@ export function useJupiter() {
         }
         const inputMint = CUSTODY_MINTS[collateralSymbol];
 
-        // 2. Fetch Custody Data on-chain
         const [custodyAccount, collateralCustodyAccount] = await Promise.all([
           program.account.custody.fetch(custodyPk),
           program.account.custody.fetch(collateralCustodyPk),
         ]);
 
-        // 3. Prepare BN values — use dynamic decimals + string-based conversion
         const collateralDecimals = getTokenDecimals(collateralSymbol);
         const collateralTokenDelta = parseTokenAmount(
           String(collateralAmount),
           collateralDecimals,
         );
 
-        // Apply leverage multiplier to compute effective notional size
         const effectiveSizeUsd = sizeUsd * leverageMultiplier;
-
-        // sizeUsd in 6-decimal format (Jupiter Perps standard)
         const sizeUsdDelta = parseTokenAmount(String(effectiveSizeUsd), 6);
 
-        // 4. Get price slippage (limit price) — async
         const priceSlippage = await getDynamicPriceSlippage(inputMint, side);
 
-        // 5. Get Jupiter swap minimum out (null if no swap needed)
         const jupiterMinimumOut = await getJupiterMinimumOut(
           inputMint,
           custodyAccount.mint,
           collateralTokenDelta,
         );
 
-        // 6. Generate Position PDA
         const { position: positionPubkey } = generatePositionPda({
           custody: custodyPk,
           collateralCustody: collateralCustodyPk,
@@ -320,7 +278,6 @@ export function useJupiter() {
         const { blockhash, lastValidBlockHeight } =
           await connection.getLatestBlockhash("confirmed");
 
-        // 7. Build Transaction
         const tx = await constructMarketOpenPositionTrade({
           custody: {
             publicKey: custodyPk,
@@ -343,22 +300,15 @@ export function useJupiter() {
           positionPubkey,
         });
 
-        // 8. Sign via the Anchor provider wallet adapter (which wraps Privy)
         const signedTx = await providerRef.current!.wallet.signTransaction(tx);
 
-        // 9. Send the signed transaction
         const txSignature = await connection.sendRawTransaction(
           signedTx.serialize(),
           { skipPreflight: true, maxRetries: 3 },
         );
 
-        // 10. Confirm with timeout via blockhash expiry + Promise.race
         const confirmPromise = connection.confirmTransaction(
-          {
-            signature: txSignature,
-            blockhash,
-            lastValidBlockHeight,
-          },
+          { signature: txSignature, blockhash, lastValidBlockHeight },
           "confirmed",
         );
 
@@ -393,8 +343,6 @@ export function useJupiter() {
 
         console.log("[Jupiter Perps] Trade Success:", txSignature);
         setLastTradeResult({ success: true, txSignature });
-
-        // Refresh positions after successful trade
         await fetchPositions();
       } catch (err: any) {
         console.error("[Jupiter Perps] Trade Failed:", err);
@@ -429,7 +377,6 @@ export function useJupiter() {
         const program = programRef.current;
         const connection = connectionRef.current;
 
-        // Validate desiredMintSymbol
         if (!CUSTODY_MINTS.hasOwnProperty(desiredMintSymbol)) {
           throw new Error(
             `Invalid desiredMintSymbol "${desiredMintSymbol}". Valid symbols: ${Object.keys(
@@ -439,7 +386,6 @@ export function useJupiter() {
         }
         const desiredMint = CUSTODY_MINTS[desiredMintSymbol];
 
-        // Fetch the on-chain position to determine the actual side
         const positionAccount = await program.account.position.fetch(
           positionPubkey,
         );
@@ -451,8 +397,7 @@ export function useJupiter() {
           positionSide,
         );
 
-        // Swap threshold
-        const jupiterMinimumOut: BN | null = null; // Close uses the position's collateral; no pre-swap needed
+        const jupiterMinimumOut: BN | null = null;
 
         const { blockhash, lastValidBlockHeight } =
           await connection.getLatestBlockhash("confirmed");
@@ -474,13 +419,8 @@ export function useJupiter() {
           { skipPreflight: true, maxRetries: 3 },
         );
 
-        // Confirm with timeout
         const confirmPromise = connection.confirmTransaction(
-          {
-            signature: txSignature,
-            blockhash,
-            lastValidBlockHeight,
-          },
+          { signature: txSignature, blockhash, lastValidBlockHeight },
           "confirmed",
         );
 
@@ -515,7 +455,6 @@ export function useJupiter() {
 
         console.log("[Jupiter Perps] Close Success:", txSignature);
         setLastTradeResult({ success: true, txSignature });
-
         await fetchPositions();
       } catch (err: any) {
         console.error("[Jupiter Perps] Close Failed:", err);

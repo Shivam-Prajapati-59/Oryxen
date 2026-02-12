@@ -12,9 +12,8 @@ import {
   CheckCircle2,
   Zap,
 } from "lucide-react";
-import { useFlash } from "@/hooks/protocols/useFlash";
-import { FLASH_DEVNET_TOKENS } from "@/types/flash";
-import type { TradeDirection } from "@/types/flash";
+import { useFlash, FLASH_DEVNET_TOKENS } from "@/features/flash";
+import type { TradeDirection } from "@/features/flash";
 
 // Tradeable target tokens (non-stablecoin)
 const TARGET_TOKENS = ["SOL", "BTC", "ETH"] as const;

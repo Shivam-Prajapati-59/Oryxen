@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { API_BASE_URL } from "@/config/env";
 
 export interface PerpFundingMetadata {
   slot?: number;
@@ -37,8 +38,6 @@ export interface FundingRateResponse {
   timestamp: number;
   count: number;
 }
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
 
 async function fetchFundingRates(
   protocol: string,

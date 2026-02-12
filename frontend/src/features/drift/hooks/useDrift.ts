@@ -30,113 +30,12 @@ import {
   getTriggerCondition,
   TradeResult,
 } from "@/types/drift";
-
-// Environment configuration
-const DRIFT_ENV = "devnet"; // Change to "mainnet-beta" for production
-const RPC_URL =
-  DRIFT_ENV === "devnet"
-    ? "https://api.devnet.solana.com"
-    : "https://api.mainnet-beta.solana.com";
-
-/**
- * Helper to validate if a string is a valid base58 Solana address
- */
-const isValidSolanaAddress = (address: string): boolean => {
-  if (!address || address.startsWith("0x")) return false;
-  const base58Regex = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
-  return base58Regex.test(address);
-};
-
-/**
- * Check if transaction is a VersionedTransaction
- * Uses multiple checks because instanceof can fail across module versions
- */
-const isVersionedTransaction = (
-  tx: Transaction | VersionedTransaction,
-): tx is VersionedTransaction => {
-  return (
-    "version" in tx ||
-    tx.constructor.name === "VersionedTransaction" ||
-    typeof (tx as any).message?.version === "number"
-  );
-};
-
-/**
- * Create a Privy-compatible wallet adapter for Drift SDK
- * This adapts Privy's wallet interface to work with Drift's IWallet interface
- * Supports both legacy Transaction and VersionedTransaction
- */
-const createPrivyWalletAdapter = (
-  privyWallet: any,
-  chainPrefix: string,
-): IWallet => {
-  const publicKey = new PublicKey(privyWallet.address);
-
-  return {
-    publicKey,
-    signTransaction: async <T extends Transaction | VersionedTransaction>(
-      tx: T,
-    ): Promise<T> => {
-      let serialized: Uint8Array;
-
-      if (isVersionedTransaction(tx)) {
-        serialized = tx.serialize();
-      } else {
-        serialized = tx.serialize({
-          requireAllSignatures: false,
-          verifySignatures: false,
-        });
-      }
-
-      const result = await privyWallet.signTransaction({
-        chain: chainPrefix,
-        transaction: serialized,
-      });
-
-      // Use Uint8Array directly instead of Buffer for browser compatibility
-      const signedBytes = new Uint8Array(result.signedTransaction);
-
-      if (isVersionedTransaction(tx)) {
-        return VersionedTransaction.deserialize(signedBytes) as T;
-      } else {
-        return Transaction.from(signedBytes) as T;
-      }
-    },
-    signAllTransactions: async <T extends Transaction | VersionedTransaction>(
-      txs: T[],
-    ): Promise<T[]> => {
-      const signedTxs: T[] = [];
-
-      for (const tx of txs) {
-        let serialized: Uint8Array;
-
-        if (isVersionedTransaction(tx)) {
-          serialized = tx.serialize();
-        } else {
-          serialized = tx.serialize({
-            requireAllSignatures: false,
-            verifySignatures: false,
-          });
-        }
-
-        const result = await privyWallet.signTransaction({
-          chain: chainPrefix,
-          transaction: serialized,
-        });
-
-        const signedBytes = new Uint8Array(result.signedTransaction);
-
-        if (isVersionedTransaction(tx)) {
-          signedTxs.push(VersionedTransaction.deserialize(signedBytes) as T);
-        } else {
-          signedTxs.push(Transaction.from(signedBytes) as T);
-        }
-      }
-
-      return signedTxs;
-    },
-  };
-};
+import { isValidSolanaAddress, createPrivyWalletAdapter } from "@/lib/solana";
+import {
+  DRIFT_ENV,
+  DRIFT_RPC_URL,
+  DRIFT_CHAIN_PREFIX,
+} from "@/features/drift/constants";
 
 export const useDrift = () => {
   const { wallets } = useWallets();
@@ -153,8 +52,6 @@ export const useDrift = () => {
   const driftClientRef = useRef<DriftClient | null>(null);
   const isInitializingRef = useRef<boolean>(false);
 
-  // Get the first connected Solana wallet from Privy
-  // Using useWallets from @privy-io/react-auth/solana returns only Solana wallets
   const privyWallet = useMemo(() => {
     const solanaWallet = wallets.find((w) => isValidSolanaAddress(w.address));
     return solanaWallet || null;
@@ -162,7 +59,7 @@ export const useDrift = () => {
 
   const connection = useMemo(() => {
     if (!connectionRef.current) {
-      connectionRef.current = new Connection(RPC_URL, "confirmed");
+      connectionRef.current = new Connection(DRIFT_RPC_URL, "confirmed");
     }
     return connectionRef.current;
   }, []);
@@ -178,8 +75,6 @@ export const useDrift = () => {
       new PublicKey(userPubKey),
     );
   };
-  const chainPrefix =
-    DRIFT_ENV === "devnet" ? "solana:devnet" : "solana:mainnet";
 
   // Initialize DriftClient with Privy wallet
   const initializeDriftClient = useCallback(async () => {
@@ -188,7 +83,6 @@ export const useDrift = () => {
       return null;
     }
 
-    // Prevent duplicate initialization
     if (isInitializingRef.current || driftClientRef.current) {
       return driftClientRef.current;
     }
@@ -198,7 +92,10 @@ export const useDrift = () => {
     setError(null);
 
     try {
-      const wallet = createPrivyWalletAdapter(privyWallet, chainPrefix);
+      const wallet = createPrivyWalletAdapter(
+        privyWallet,
+        DRIFT_CHAIN_PREFIX,
+      ) as unknown as IWallet;
 
       const client = new DriftClient({
         connection,
@@ -209,7 +106,6 @@ export const useDrift = () => {
 
       await client.subscribe();
 
-      // Check if still mounted before updating state
       if (!isMountedRef.current) {
         await client.unsubscribe();
         return null;
@@ -219,13 +115,11 @@ export const useDrift = () => {
       setDriftClient(client);
       setIsInitialized(true);
 
-      // Try to get the user account
       try {
         const driftUser = client.getUser();
         setUser(driftUser);
         setUserAccountExists(true);
       } catch {
-        // User account may not exist yet
         console.log("User account not found - may need to initialize");
         setUserAccountExists(false);
       }
@@ -245,7 +139,7 @@ export const useDrift = () => {
         setIsLoading(false);
       }
     }
-  }, [privyWallet, connection, sdkConfig, chainPrefix]);
+  }, [privyWallet, connection, sdkConfig]);
 
   // Initialize user account if it doesn't exist
   const initializeUserAccount = useCallback(
@@ -266,7 +160,6 @@ export const useDrift = () => {
         console.log("User account initialized:", userPublicKey.toString());
         console.log("Transaction signature:", txSig);
 
-        // Update user after initialization
         if (isMountedRef.current) {
           const driftUser = driftClient.getUser();
           setUser(driftUser);
@@ -293,11 +186,7 @@ export const useDrift = () => {
   );
 
   const deposit = useCallback(
-    async (
-      amount: number,
-      symbol: string, // Change input to 'symbol' (e.g., "SOL" or "USDC")
-      subAccountId: number = 0,
-    ) => {
+    async (amount: number, symbol: string, subAccountId: number = 0) => {
       if (!driftClient) throw new Error("Drift client not initialized");
       if (!privyWallet) throw new Error("No wallet connected");
       if (!isMountedRef.current) return null;
@@ -306,7 +195,6 @@ export const useDrift = () => {
       setError(null);
 
       const walletPublicKey = new PublicKey(privyWallet.address);
-      // Misc. other things to set up
       const usdcTokenAddress = await getTokenAddress(
         sdkConfig.USDC_MINT_ADDRESS,
         walletPublicKey.toString(),
@@ -321,11 +209,9 @@ export const useDrift = () => {
           throw new Error(`Spot market for ${symbol} not found`);
         }
 
-        const marketIndex = spotInfo.marketIndex; // Returns 1 for SOL, 0 for USDC
+        const marketIndex = spotInfo.marketIndex;
         console.log(`Depositing ${symbol} to Market Index ${marketIndex}`);
 
-        // 2. PREPARE DATA
-        const walletPublicKey = new PublicKey(privyWallet.address);
         const associatedTokenAccount =
           await driftClient.getAssociatedTokenAccount(marketIndex);
 
@@ -334,11 +220,9 @@ export const useDrift = () => {
           amount,
         );
 
-        // 3. CHECK BALANCE (Fixed for Native SOL)
         let tokenBalance = new BN(0);
 
         if (symbol === "SOL") {
-          // Special handling for Native SOL
           const rawBalance = await connection.getBalance(walletPublicKey);
           tokenBalance = new BN(rawBalance);
         }
@@ -349,19 +233,16 @@ export const useDrift = () => {
             walletPublicKey.toString(),
           );
         } else {
-          // Handling for USDC and other tokens
           try {
             const tokenAccountInfo = await connection.getTokenAccountBalance(
               associatedTokenAccount,
             );
             tokenBalance = new BN(tokenAccountInfo.value.amount);
           } catch (e) {
-            // ATA doesn't exist = 0 balance
             tokenBalance = new BN(0);
           }
         }
 
-        // 4. VALIDATE BALANCE
         if (depositAmount.gt(tokenBalance)) {
           const readableBalance =
             tokenBalance.toNumber() /
@@ -371,7 +252,6 @@ export const useDrift = () => {
           );
         }
 
-        // 5. EXECUTE TRANSACTION
         const tx = await driftClient.createDepositTxn(
           depositAmount,
           marketIndex,
@@ -409,35 +289,27 @@ export const useDrift = () => {
       marketIndex: number = 0,
       subAccountId: number = 0,
     ) => {
-      if (!driftClient) {
-        throw new Error("Drift client not initialized");
-      }
-
-      if (!privyWallet) {
-        throw new Error("No wallet connected");
-      }
-
+      if (!driftClient) throw new Error("Drift client not initialized");
+      if (!privyWallet) throw new Error("No wallet connected");
       if (!isMountedRef.current) return null;
+
       setIsLoading(true);
       setError(null);
 
       try {
-        // Convert amount to the correct precision for the spot market
         const withdrawAmount = driftClient.convertToSpotPrecision(
           marketIndex,
           amount,
         );
 
-        // Get the associated token account for this market
         const associatedTokenAccount =
           await driftClient.getAssociatedTokenAccount(marketIndex);
 
-        // Call the withdraw method directly - it handles the transaction
         const txSig = await driftClient.withdraw(
           withdrawAmount,
           marketIndex,
           associatedTokenAccount,
-          false, // reduceOnly - set to false to allow creating a borrow if needed
+          false,
           subAccountId,
         );
 
@@ -469,7 +341,6 @@ export const useDrift = () => {
       if (!isInitialized)
         throw new Error("Drift client is not fully initialized");
 
-      // Input validation
       if (!params.marketIndex && params.marketIndex !== 0) {
         throw new Error("Market index is required");
       }
@@ -497,15 +368,13 @@ export const useDrift = () => {
           direction: uiDirection,
           reduceOnly,
           postOnly,
-          subAccountId = 0, // Default to subaccount 0
+          subAccountId = 0,
         } = params;
 
         const direction = toPositionDirection(uiDirection);
         const orderType = toOrderType(orderVariant);
 
-        // ============================================
-        // CASE 1: SCALE ORDERS (Batch)
-        // ============================================
+        // CASE 1: SCALE ORDERS
         if (orderVariant === "scale") {
           if (!startPrice || !endPrice || !orderCount || orderCount < 2) {
             throw new Error(
@@ -516,7 +385,6 @@ export const useDrift = () => {
           const orderParamsList: OptionalOrderParams[] = [];
           const step = (endPrice - startPrice) / (orderCount - 1);
 
-          // Calculate individual order size (Total Amount / Count)
           const singleOrderSize = baseAssetAmount / orderCount;
           const baseAmountBN =
             driftClient.convertToPerpPrecision(singleOrderSize);
@@ -526,7 +394,7 @@ export const useDrift = () => {
             const priceBN = driftClient.convertToPricePrecision(priceLevel);
 
             orderParamsList.push({
-              orderType: OrderType.LIMIT, // Scale orders are always Limit orders
+              orderType: OrderType.LIMIT,
               marketType: MarketType.PERP,
               marketIndex,
               direction,
@@ -539,16 +407,13 @@ export const useDrift = () => {
             });
           }
 
-          // Get the order instructions
           const orderIxs = await driftClient.getPlaceOrdersIx(
             orderParamsList,
             subAccountId,
           );
 
-          // Build transaction from instructions
           const tx = await driftClient.buildTransaction(orderIxs);
 
-          // Send the transaction (wallet adapter will handle signing)
           const { txSig } = await driftClient.sendTransaction(
             tx,
             [],
@@ -563,29 +428,19 @@ export const useDrift = () => {
           };
         }
 
-        // ============================================
-        // CASE 2: SINGLE ORDERS (Market, Limit, Trigger)
-        // ============================================
-
-        // 1. Convert Base Amount
+        // CASE 2: SINGLE ORDERS
         const baseAmountBN =
           driftClient.convertToPerpPrecision(baseAssetAmount);
 
-        // 2. Calculate Price (BN)
         let priceBN: BN | undefined;
-
         if (orderVariant === "market") {
-          // MARKET ORDER: For market orders, we don't set a price
-          // The SDK will handle it automatically
           priceBN = undefined;
         } else {
-          // LIMIT / TRIGGER: Use user input
           if (uiPrice === undefined)
             throw new Error("Price is required for this order type");
           priceBN = driftClient.convertToPricePrecision(uiPrice);
         }
 
-        // 3. Calculate Trigger Price (if needed)
         let triggerPriceBN: BN | undefined;
         let triggerCondition: OrderTriggerCondition | undefined;
 
@@ -596,7 +451,6 @@ export const useDrift = () => {
           triggerCondition = getTriggerCondition(orderVariant, uiDirection);
         }
 
-        // 4. Construct Order Params
         const orderParams: OptionalOrderParams = {
           orderType,
           marketType: MarketType.PERP,
@@ -609,27 +463,22 @@ export const useDrift = () => {
             : PostOnlyParams.NONE,
         };
 
-        // Only add price for non-market orders
         if (priceBN !== undefined) {
           orderParams.price = priceBN;
         }
 
-        // Add trigger params for trigger orders
         if (triggerPriceBN !== undefined) {
           orderParams.triggerPrice = triggerPriceBN;
           orderParams.triggerCondition = triggerCondition;
         }
 
-        // 5. Get the order instruction using getPlacePerpOrderIx
         const orderIx = await driftClient.getPlacePerpOrderIx(
           orderParams,
           subAccountId,
         );
 
-        // 6. Build transaction from instructions
         const tx = await driftClient.buildTransaction(orderIx);
 
-        // 7. Send the transaction (wallet adapter will handle signing)
         const { txSig } = await driftClient.sendTransaction(
           tx,
           [],
@@ -645,7 +494,6 @@ export const useDrift = () => {
       } catch (err) {
         let msg = err instanceof Error ? err.message : "Trade execution failed";
 
-        // Parse common Drift error codes for better UX
         if (
           msg.includes("0x1773") ||
           msg.includes("6003") ||
@@ -673,15 +521,13 @@ export const useDrift = () => {
         }
       }
     },
-    [driftClient, isInitialized], // Dependencies
+    [driftClient, isInitialized],
   );
 
-  // Utility to clear errors
   const clearError = useCallback(() => {
     setError(null);
   }, []);
 
-  // Track mounted state
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
@@ -689,7 +535,6 @@ export const useDrift = () => {
     };
   }, []);
 
-  // Cleanup subscription on unmount or when client changes
   useEffect(() => {
     return () => {
       if (driftClientRef.current) {
@@ -699,7 +544,6 @@ export const useDrift = () => {
     };
   }, []);
 
-  // Reset state when wallet changes
   useEffect(() => {
     if (!privyWallet && driftClientRef.current) {
       driftClientRef.current.unsubscribe().catch(console.error);
@@ -712,7 +556,6 @@ export const useDrift = () => {
     }
   }, [privyWallet]);
 
-  // Refresh user data
   const refreshUser = useCallback(async () => {
     if (!driftClient || !isMountedRef.current) return;
     try {
@@ -755,19 +598,16 @@ export const useDrift = () => {
     refreshUser,
     getSpotIndex,
 
-    // Helper to get user's free collateral
     getFreeCollateral: useCallback(() => {
       if (!user) return null;
       try {
         const freeCollateral = user.getFreeCollateral();
-        // Convert from QUOTE_PRECISION (1e6) to human readable
         return freeCollateral.toNumber() / 1e6;
       } catch {
         return null;
       }
     }, [user]),
 
-    // Helper to get total collateral
     getTotalCollateral: useCallback(() => {
       if (!user) return null;
       try {
@@ -778,7 +618,6 @@ export const useDrift = () => {
       }
     }, [user]),
 
-    // Helper to check if user can afford a trade
     canAffordTrade: useCallback(
       (baseAssetAmount: number, marketIndex: number) => {
         if (!user || !driftClient)
@@ -786,16 +625,10 @@ export const useDrift = () => {
         try {
           const freeCollateral = user.getFreeCollateral();
           const freeCollateralUsd = freeCollateral.toNumber() / 1e6;
-
-          // Get oracle price for the market
           const oracleData =
             driftClient.getOracleDataForPerpMarket(marketIndex);
-          const oraclePrice = oracleData.price.toNumber() / 1e6; // PRICE_PRECISION
-
-          // Estimate position value
+          const oraclePrice = oracleData.price.toNumber() / 1e6;
           const positionValue = baseAssetAmount * oraclePrice;
-
-          // Rough margin requirement estimate (initial margin ~5% for most markets)
           const estimatedMargin = positionValue * 0.05;
 
           if (freeCollateralUsd < estimatedMargin) {
@@ -821,14 +654,12 @@ export const useDrift = () => {
       [user, driftClient],
     ),
 
-    // Get current oracle price for a perp market
     getOraclePrice: useCallback(
       (marketIndex: number): number | null => {
         if (!driftClient) return null;
         try {
           const oracleData =
             driftClient.getOracleDataForPerpMarket(marketIndex);
-          // PRICE_PRECISION is 1e6
           return oracleData.price.toNumber() / 1e6;
         } catch {
           return null;
@@ -837,7 +668,6 @@ export const useDrift = () => {
       [driftClient],
     ),
 
-    // Get perp market account for fee/funding info
     getPerpMarketInfo: useCallback(
       (marketIndex: number) => {
         if (!driftClient) return null;
@@ -845,32 +675,24 @@ export const useDrift = () => {
           const market = driftClient.getPerpMarketAccount(marketIndex);
           if (!market) return null;
 
-          // Get oracle price
           const oracleData =
             driftClient.getOracleDataForPerpMarket(marketIndex);
           const oraclePrice = oracleData.price.toNumber() / 1e6;
 
-          // Fee tier - taker fee is typically 0.1% (10 bps), maker fee is 0 or rebate
-          // Default fees for Drift Protocol
-          const takerFee = 0.001; // 0.1% taker fee
-          const makerFee = 0; // Maker fee is typically 0 or rebate
+          const takerFee = 0.001;
+          const makerFee = 0;
 
-          // Funding rate - stored as hourly rate
-          // FUNDING_RATE_PRECISION is 1e9
           const lastFundingRate = market.amm?.lastFundingRate
             ? market.amm.lastFundingRate.toNumber() / 1e9
             : 0;
 
-          // Convert hourly funding to 8-hour and annualized
           const fundingRate8h = lastFundingRate * 8;
           const fundingRateAnnualized = lastFundingRate * 24 * 365;
 
-          // Mark price from AMM
           const markPrice = market.amm?.lastMarkPriceTwap
             ? market.amm.lastMarkPriceTwap.toNumber() / 1e6
             : oraclePrice;
 
-          // Open interest
           const baseAssetAmountLong = market.amm?.baseAssetAmountLong
             ? market.amm.baseAssetAmountLong.abs().toNumber() / 1e9
             : 0;
@@ -897,7 +719,6 @@ export const useDrift = () => {
       [driftClient],
     ),
 
-    // Calculate trade details for pre-trade summary
     calculateTradeDetails: useCallback(
       (
         marketIndex: number,
@@ -913,53 +734,38 @@ export const useDrift = () => {
             driftClient.getOracleDataForPerpMarket(marketIndex);
           const oraclePrice = oracleData.price.toNumber() / 1e6;
 
-          // Entry price - for market orders use oracle, for limit use limit price
           const entryPrice =
             orderType === "market" ? oraclePrice : limitPrice || oraclePrice;
-
-          // Position value (notional)
           const positionValue = baseAssetAmount * entryPrice;
 
-          // Fees (0.1% taker for market, 0% maker for limit)
           const feeRate = orderType === "market" ? 0.001 : 0;
           const estimatedFee = positionValue * feeRate;
 
-          // Required margin (Initial margin requirement ~5% for most markets)
-          const marginRate = 0.05; // 5% initial margin = 20x max leverage
+          const marginRate = 0.05;
           const requiredMargin = positionValue * marginRate;
 
-          // User's collateral
           const freeCollateral = user.getFreeCollateral().toNumber() / 1e6;
           const totalCollateral = user.getTotalCollateral().toNumber() / 1e6;
 
-          // Estimate liquidation price (simplified)
-          // Liquidation happens when equity falls below maintenance margin (~3%)
           const maintenanceMarginRate = 0.03;
-          const collateralAfterTrade = freeCollateral - requiredMargin;
           let liquidationPrice: number | null = null;
 
           if (direction === "long") {
-            // For longs, liquidation when price drops
-            // equity = collateral + unrealizedPnL
-            // unrealizedPnL = (currentPrice - entryPrice) * size
-            // Liquidation when: collateral + (liqPrice - entryPrice) * size = positionValue * maintenanceMarginRate
             const liqPriceChange =
               (requiredMargin - positionValue * maintenanceMarginRate) /
               baseAssetAmount;
             liquidationPrice = entryPrice - liqPriceChange;
             if (liquidationPrice < 0) liquidationPrice = null;
           } else {
-            // For shorts, liquidation when price rises
             const liqPriceChange =
               (requiredMargin - positionValue * maintenanceMarginRate) /
               baseAssetAmount;
             liquidationPrice = entryPrice + liqPriceChange;
           }
 
-          // Price impact estimate for market orders (simplified)
           const priceImpact =
             orderType === "market"
-              ? Math.min(baseAssetAmount * 0.0001, 0.005) // Rough estimate
+              ? Math.min(baseAssetAmount * 0.0001, 0.005)
               : 0;
 
           return {

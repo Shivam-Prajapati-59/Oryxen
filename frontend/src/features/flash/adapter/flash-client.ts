@@ -1,10 +1,14 @@
+/**
+ * Flash Trade — Adapter (client factory + trade execution).
+ *
+ * Moved from `adapters/flash.ts`. Uses shared wallet utilities from `@/lib/solana`.
+ */
+
 import { AnchorProvider, BN } from "@coral-xyz/anchor";
 import {
   Connection,
   PublicKey,
-  Transaction,
   TransactionInstruction,
-  VersionedTransaction,
   ComputeBudgetProgram,
   Signer,
 } from "@solana/web3.js";
@@ -19,163 +23,40 @@ import {
   PoolDataClient,
   CustodyAccount,
   BN_ZERO,
-  BPS_DECIMALS,
   Privilege,
 } from "flash-sdk";
-import type { FlashConfig, FlashCluster, FlashPoolName } from "@/types/flash";
+import type { FlashConfig } from "@/types/flash";
 import {
   getPythProgramKeyForCluster,
   PriceData,
   PythHttpClient,
 } from "@pythnetwork/client";
+import { createPrivyWalletAdapter } from "@/lib/solana";
+import { FLASH_CONFIG } from "../constants";
 
-// Environment Configuration
-const FLASH_ENV: FlashCluster = "devnet"; // Change to "mainnet-beta" for production
-
-const FLASH_RPC_URLS: Record<FlashCluster, string> = {
-  devnet:
-    process.env.NEXT_PUBLIC_SOLANA_DEVNET_RPC ||
-    "https://api.devnet.solana.com",
-  "mainnet-beta":
-    process.env.NEXT_PUBLIC_SOLANA_RPC || "https://api.mainnet-beta.solana.com",
-};
-
-const FLASH_POOL_NAMES: Record<FlashCluster, FlashPoolName> = {
-  devnet: "devnet.1",
-  "mainnet-beta": "Crypto.1",
-};
-
-const FLASH_CHAIN_PREFIX: Record<FlashCluster, string> = {
-  devnet: "solana:devnet",
-  "mainnet-beta": "solana:mainnet",
-};
-
-/** Resolved configuration for the current environment */
-export const FLASH_CONFIG: FlashConfig = {
-  cluster: FLASH_ENV,
-  poolName: FLASH_POOL_NAMES[FLASH_ENV],
-  rpcUrl: FLASH_RPC_URLS[FLASH_ENV],
-  chainPrefix: FLASH_CHAIN_PREFIX[FLASH_ENV],
-  prioritizationFee: 0,
-};
-
-// Utility Functions
-
-/** Validate base58 Solana address (exclude EVM 0x addresses) */
-export const isValidSolanaAddress = (address: string): boolean => {
-  if (!address || address.startsWith("0x")) return false;
-  return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address);
-};
-
-/** Check if a transaction is a VersionedTransaction */
-const isVersionedTransaction = (
-  tx: Transaction | VersionedTransaction,
-): tx is VersionedTransaction => {
-  return (
-    "version" in tx ||
-    tx.constructor.name === "VersionedTransaction" ||
-    typeof (tx as any).message?.version === "number"
-  );
-};
-
-/**
- * Wraps a Privy wallet into an Anchor-compatible wallet interface so the
- * Flash SDK PerpetualsClient can sign transactions through Privy.
- */
-export const createPrivyWalletAdapter = (
-  privyWallet: any,
-  chainPrefix: string,
-) => {
-  const publicKey = new PublicKey(privyWallet.address);
-
-  return {
-    publicKey,
-    signTransaction: async <T extends Transaction | VersionedTransaction>(
-      tx: T,
-    ): Promise<T> => {
-      let serialized: Uint8Array;
-
-      if (isVersionedTransaction(tx)) {
-        serialized = tx.serialize();
-      } else {
-        serialized = tx.serialize({
-          requireAllSignatures: false,
-          verifySignatures: false,
-        });
-      }
-
-      const result = await privyWallet.signTransaction({
-        chain: chainPrefix,
-        transaction: serialized,
-      });
-
-      const signedBytes = new Uint8Array(result.signedTransaction);
-
-      if (isVersionedTransaction(tx)) {
-        return VersionedTransaction.deserialize(signedBytes) as T;
-      } else {
-        return Transaction.from(signedBytes) as T;
-      }
-    },
-    signAllTransactions: async <T extends Transaction | VersionedTransaction>(
-      txs: T[],
-    ): Promise<T[]> => {
-      const signed: T[] = [];
-      for (const tx of txs) {
-        let serialized: Uint8Array;
-        if (isVersionedTransaction(tx)) {
-          serialized = tx.serialize();
-        } else {
-          serialized = tx.serialize({
-            requireAllSignatures: false,
-            verifySignatures: false,
-          });
-        }
-
-        const result = await privyWallet.signTransaction({
-          chain: chainPrefix,
-          transaction: serialized,
-        });
-
-        const signedBytes = new Uint8Array(result.signedTransaction);
-        if (isVersionedTransaction(tx)) {
-          signed.push(VersionedTransaction.deserialize(signedBytes) as T);
-        } else {
-          signed.push(Transaction.from(signedBytes) as T);
-        }
-      }
-      return signed;
-    },
-  };
-};
+// ─── Client factory ──────────────────────────────────────────────────
 
 /**
  * Creates a fully-configured PerpetualsClient for the Flash Trade protocol.
- * This factory should be called when you have a connected Privy wallet.
  */
 export const createFlashClient = (
   privyWallet: any,
   config: FlashConfig = FLASH_CONFIG,
 ) => {
-  // 1. Solana connection — use the config's RPC URL
   const connection = new Connection(config.rpcUrl, "processed");
 
-  // 2. Anchor wallet adapter from Privy wallet
   const anchorWallet = createPrivyWalletAdapter(
     privyWallet,
     config.chainPrefix,
   );
 
-  // 3. Anchor provider
   const provider = new AnchorProvider(connection as any, anchorWallet as any, {
     commitment: "processed",
     skipPreflight: true,
   });
 
-  // 4. Load pool config for the target cluster + pool
   const poolConfig = PoolConfig.fromIdsByName(config.poolName, config.cluster);
 
-  // 5. Instantiate the PerpetualsClient
   const client = new PerpetualsClient(
     provider,
     poolConfig.programId,
@@ -190,9 +71,8 @@ export const createFlashClient = (
   return { client, poolConfig, connection };
 };
 
-/**
- * Setup Pyth pricing data
- */
+// ─── Pyth helpers ────────────────────────────────────────────────────
+
 const getPythClient = () => {
   const connectionFromPyth = new Connection("https://pythnet.rpcpool.com");
   return new PythHttpClient(
@@ -201,9 +81,6 @@ const getPythClient = () => {
   );
 };
 
-/**
- * Fetch current prices from Pyth for all pool tokens
- */
 const getPrices = async (poolConfig: PoolConfig) => {
   const pythClient = getPythClient();
   const pythHttpClientResult = await pythClient.getData();
@@ -213,7 +90,7 @@ const getPrices = async (poolConfig: PoolConfig) => {
     { price: OraclePrice; emaPrice: OraclePrice }
   >();
 
-  for (let token of poolConfig.tokens) {
+  for (const token of poolConfig.tokens) {
     const priceData: PriceData = pythHttpClientResult.productPrice.get(
       token.pythTicker,
     )!;
@@ -241,6 +118,8 @@ const getPrices = async (poolConfig: PoolConfig) => {
 
   return priceMap;
 };
+
+// ─── Trade execution ─────────────────────────────────────────────────
 
 /**
  * Open a position with different collateral using swap
@@ -277,7 +156,6 @@ export const openPositionWithSwap = async (
   const outputTokenPrice = priceMap.get(outputToken.symbol)!.price;
   const outputTokenPriceEma = priceMap.get(outputToken.symbol)!.emaPrice;
 
-  // Load address lookup table for transaction optimization
   await client.loadAddressLookupTable(poolConfig);
 
   const priceAfterSlippage = client.getPriceAfterSlippage(
@@ -299,7 +177,6 @@ export const openPositionWithSwap = async (
     (c) => c.symbol === outputToken.symbol,
   )!;
 
-  // Fetch custody data
   const custodies = await client.program.account.custody.fetchMultiple([
     inputCustody.custodyAccount,
     outputCustody.custodyAccount,
@@ -324,7 +201,7 @@ export const openPositionWithSwap = async (
     [...allCustodies.map((c) => CustodyAccount.from(c.publicKey, c.account))],
   );
 
-  let lpStats = poolDataClient.getLpStats(await getPrices(poolConfig));
+  const lpStats = poolDataClient.getLpStats(await getPrices(poolConfig));
 
   const inputCustodyAccount = CustodyAccount.from(
     inputCustody.custodyAccount,
@@ -335,7 +212,6 @@ export const openPositionWithSwap = async (
     custodies[1]!,
   );
 
-  // Calculate size with swap - Flash SDK takes 19 params per docs
   const size = client.getSizeAmountWithSwapSync(
     collateralWithFee,
     leverage.toString(),
@@ -355,11 +231,9 @@ export const openPositionWithSwap = async (
     outputCustodyAccount,
     lpStats.totalPoolValueUsd,
     poolConfig,
-    uiDecimalsToNative(`0`, 2), // 0 = no NFT discount; set 1-5 if user holds a Flash Beast NFT
+    uiDecimalsToNative(`0`, 2),
   );
 
-  // Execute swap and open
-  // SDK signature: (target, collateral, input, amountIn, priceWithSlippage, sizeAmount, side, poolConfig, privilege)
   const openPositionData = await client.swapAndOpen(
     outputToken.symbol,
     outputToken.symbol,
@@ -379,7 +253,6 @@ export const openPositionWithSwap = async (
     units: 600_000,
   });
 
-  // Retrieve loaded ALTs — required for VersionedTransaction account resolution
   const { addressLookupTables } = await client.getOrLoadAddressLookupTable(
     poolConfig,
   );
@@ -462,7 +335,7 @@ export const openPosition = async (
     inputTokenPrice,
     inputTokenPriceEma,
     CustodyAccount.from(inputCustody.custodyAccount, custodies[0]!),
-    uiDecimalsToNative(`0`, 2), // 0 = no NFT discount; set 1-5 if user holds a Flash Beast NFT
+    uiDecimalsToNative(`0`, 2),
   );
 
   const openPositionData = await client.openPosition(
@@ -483,7 +356,6 @@ export const openPosition = async (
     units: 600_000,
   });
 
-  // Retrieve loaded ALTs — required for VersionedTransaction account resolution
   const { addressLookupTables } = await client.getOrLoadAddressLookupTable(
     poolConfig,
   );
@@ -499,18 +371,6 @@ export const openPosition = async (
 
 /**
  * Set Take Profit and/or Stop Loss on an existing position.
- *
- * NOTE:
- * - Stop Loss: must be above Liquidation Price and below Current Price for LONG;
- *              must be above Current Price for SHORT
- * - Take Profit: must be above Current Price for LONG;
- *                must be below Current Price for SHORT
- *
- * @param client        - Initialized PerpetualsClient
- * @param poolConfig    - Pool config for the target cluster
- * @param market        - The market PublicKey (e.g. SOL-Long market account)
- * @param takeProfitPriceUi - TP price in USD (or undefined to skip)
- * @param stopLossPriceUi   - SL price in USD (or undefined to skip)
  */
 export const setTpAndSlForMarket = async (
   client: PerpetualsClient,
@@ -538,7 +398,6 @@ export const setTpAndSlForMarket = async (
   const additionalSigners: Signer[] = [];
   let COMPUTE_LIMIT = 0;
 
-  // Find the user's open position for this market
   const positions = await client.getUserPositions(
     client.provider.publicKey,
     poolConfig,
@@ -574,11 +433,11 @@ export const setTpAndSlForMarket = async (
     const result = await client.placeTriggerOrder(
       targetCustodyConfig.symbol,
       collateralCustodyConfig.symbol,
-      collateralCustodyConfig.symbol, // receiveSymbol — receive collateral token back
+      collateralCustodyConfig.symbol,
       side,
       triggerContractOraclePrice,
-      position.sizeAmount, // full size; can be partial
-      false, // isStopLoss = false → this is a Take Profit
+      position.sizeAmount,
+      false, // isStopLoss = false → Take Profit
       poolConfig,
     );
 
@@ -607,11 +466,11 @@ export const setTpAndSlForMarket = async (
     const result = await client.placeTriggerOrder(
       targetCustodyConfig.symbol,
       collateralCustodyConfig.symbol,
-      collateralCustodyConfig.symbol, // receiveSymbol
+      collateralCustodyConfig.symbol,
       side,
       triggerContractOraclePrice,
-      position.sizeAmount, // full size; can be partial
-      true, // isStopLoss = true → this is a Stop Loss
+      position.sizeAmount,
+      true, // isStopLoss = true → Stop Loss
       poolConfig,
     );
 
@@ -624,7 +483,6 @@ export const setTpAndSlForMarket = async (
     units: COMPUTE_LIMIT,
   });
 
-  // Retrieve loaded ALTs — required for VersionedTransaction account resolution
   const { addressLookupTables } = await client.getOrLoadAddressLookupTable(
     poolConfig,
   );
@@ -639,7 +497,7 @@ export const setTpAndSlForMarket = async (
 };
 
 /**
- * Get available tokens in the pool
+ * Get available tokens in the pool.
  */
 export const getAvailableTokens = (poolConfig: PoolConfig) => {
   return poolConfig.tokens.map((token) => ({
@@ -649,5 +507,4 @@ export const getAvailableTokens = (poolConfig: PoolConfig) => {
   }));
 };
 
-// Export Side enum for component use
 export { Side };

@@ -9,7 +9,7 @@ import {
   VersionedTransaction,
 } from "@solana/web3.js";
 
-import { CustodyAccount, Position } from "@/types/jupiter";
+import { CustodyAccount, Position } from "@/features/jupiter/types";
 import { Perpetuals } from "@/lib/idl/jupiter-perpetuals-idl";
 import { generatePositionRequestPda } from "./generate-position-and-position-request-pda";
 import {
@@ -22,7 +22,7 @@ import {
 import {
   JLP_POOL_ACCOUNT_PUBKEY,
   JUPITER_PERPETUALS_PROGRAM_ID,
-} from "@/utils/jupiter-constant";
+} from "@/features/jupiter/constants";
 
 export async function constructMarketOpenPositionTrade({
   custody,
