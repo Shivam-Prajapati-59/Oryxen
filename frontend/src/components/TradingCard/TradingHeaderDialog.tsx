@@ -214,7 +214,7 @@ const TradingHeaderDialog = ({ onClose, onSelectMarket }: TradingHeaderDialogPro
                             {isConnected ? "Pyth Oracle Live" : "Oracle Offline"}
                         </span>
                     </div>
-                    <div className="h-4 w-[1px] bg-white/10" />
+                    <div className="h-4 w-px bg-white/10" />
                     <span className="text-[10px] font-bold uppercase text-muted-foreground">
                         {filteredPerps.length} Pairs Available
                     </span>

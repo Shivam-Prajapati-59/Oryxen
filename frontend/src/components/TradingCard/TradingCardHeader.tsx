@@ -13,7 +13,9 @@ interface TradingCardHeaderProps {
 
 const TradingCardHeader = ({ isOpen, setIsOpen, selectedMarket }: TradingCardHeaderProps) => {
     const baseSymbol = selectedMarket.symbol.replace(/-PERP$/i, "");
-    const { prices, isConnected } = usePriceFeed([baseSymbol]);
+
+    // 2. Hooks
+    const { prices } = usePriceFeed([baseSymbol]);
     const [imageError, setImageError] = useState(false);
 
     // Reset image error when market changes
@@ -23,12 +25,31 @@ const TradingCardHeader = ({ isOpen, setIsOpen, selectedMarket }: TradingCardHea
 
     const currentPrice = prices[baseSymbol];
 
+    // --- Formatters ---
+
     const formatPrice = (price: number | null | undefined): string => {
         if (!price || isNaN(price)) return "-";
-        if (price >= 1000) return `$${price.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}`;
+        if (price >= 1000) return `$${price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
         if (price >= 1) return `$${price.toFixed(4)}`;
         return `$${price.toFixed(6)}`;
     };
+
+    const formatFunding = (rate: number): string => {
+        // Rate is usually hourly decimal (e.g. 0.0001). Convert to %.
+        const percentage = rate * 100;
+        return `${percentage > 0 ? "+" : ""}${percentage.toFixed(4)}%`;
+    };
+
+    const formatOI = (oi: number): string => {
+        if (!oi) return "-";
+        if (oi >= 1_000_000) return `${(oi / 1_000_000).toFixed(2)}M`;
+        if (oi >= 1_000) return `${(oi / 1_000).toFixed(1)}K`;
+        return oi.toLocaleString();
+    };
+
+    // Calculate 24h Change (Optional: You need 24h Open Price from API to calculate this accurately. 
+    // For now, leaving as placeholder or you can implement if API provides 'price24hAgo')
+    const priceChange = "-";
 
     return (
         <div className="flex flex-col md:flex-row items-stretch justify-between border dark:border-white/10 border-black/20">
@@ -74,7 +95,7 @@ const TradingCardHeader = ({ isOpen, setIsOpen, selectedMarket }: TradingCardHea
                         {formatPrice(currentPrice)}
                     </h2>
                     <p className="hidden sm:block text-sm tracking-wide text-muted-foreground font-noto">
-                        {currentPrice ? "Live Price" : "Price"}
+                        Live Price
                     </p>
                 </div>
             </div>
@@ -88,7 +109,7 @@ const TradingCardHeader = ({ isOpen, setIsOpen, selectedMarket }: TradingCardHea
                         Change (24hr)
                     </p>
                     <h3 className="text-sm font-medium text-muted-foreground font-ibm">
-                        -
+                        {priceChange}
                     </h3>
                 </div>
 
