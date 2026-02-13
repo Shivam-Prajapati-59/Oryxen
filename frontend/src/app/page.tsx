@@ -15,9 +15,9 @@ export default function Home() {
         <TradingCard />
       </div>
       {/* <DemoPacifica /> */}
-      {/* <DemoDrift /> */}
+      <DemoDrift />
       {/* <DemoFlash /> */}
-      <DemoJupiter />
+      {/* <DemoJupiter /> */}
     </Container>
   );
 }

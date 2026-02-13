@@ -25,7 +25,7 @@ import {
   BN_ZERO,
   Privilege,
 } from "flash-sdk";
-import type { FlashConfig } from "@/types/flash";
+import type { FlashConfig } from "../types";
 import {
   getPythProgramKeyForCluster,
   PriceData,

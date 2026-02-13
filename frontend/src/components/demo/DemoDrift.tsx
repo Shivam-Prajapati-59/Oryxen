@@ -7,6 +7,7 @@ import { Input } from "../ui/input";
 import { Loader2, TrendingUp, TrendingDown, Info, AlertTriangle } from "lucide-react";
 import { useDrift } from "@/features/drift";
 import type { OrderVariant, TradeDirection } from "@/features/drift";
+import { bnToBase, bnToPrice } from "@/features/drift";
 
 // Environment configuration
 const DRIFT_ENV = "devnet"; // Change to "mainnet-beta" for production
@@ -85,7 +86,9 @@ const DemoDrift = () => {
         getOraclePrice,
         getPerpMarketInfo,
         calculateTradeDetails,
-        getSpotIndex, // Import the helper we created in the hook
+        getPositions,
+        getSpotBalances,
+        getAllOrders,
     } = useDrift();
 
     // Get collateral values for display
@@ -142,11 +145,7 @@ const DemoDrift = () => {
                 return;
             }
 
-            // For withdraw, if your hook still expects a number (Market Index),
-            // we use the helper to find it based on the current selected string.
-            const marketIndex = getSpotIndex(selectedMarket);
-
-            const result = await withdraw(amount, marketIndex, 0);
+            const result = await withdraw(amount, selectedMarket, false, 0);
             if (result) {
                 setWithdrawTx(result.explorerUrl);
             }
@@ -508,8 +507,6 @@ const DemoDrift = () => {
                             {/* Trading Section */}
                             <div className="rounded-lg border p-4 space-y-4">
                                 <h3 className="font-semibold">Place Perp Order</h3>
-                                {/* ... Rest of Trading Section remains the same ... */}
-                                {/* ... (The rest of your JSX logic for trading was already correct) ... */}
                                 <p className="text-sm text-muted-foreground">
                                     Trade perpetual contracts with leverage on Drift.
                                 </p>
@@ -531,7 +528,7 @@ const DemoDrift = () => {
                                             <div className="space-y-1">
                                                 <p className="text-muted-foreground text-xs">Mark Price</p>
                                                 <p className="font-mono font-medium">
-                                                    ${marketInfo.markPrice?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || "—"}
+                                                    ${marketInfo.markPriceTwap?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || "—"}
                                                 </p>
                                             </div>
                                             <div className="space-y-1">
@@ -541,9 +538,9 @@ const DemoDrift = () => {
                                                 </p>
                                             </div>
                                             <div className="space-y-1">
-                                                <p className="text-muted-foreground text-xs">Taker Fee</p>
+                                                <p className="text-muted-foreground text-xs">Bid / Ask</p>
                                                 <p className="font-mono font-medium">
-                                                    {(marketInfo.takerFee * 100).toFixed(2)}%
+                                                    ${marketInfo.bidPrice?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? "—"} / ${marketInfo.askPrice?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? "—"}
                                                 </p>
                                             </div>
                                         </div>
@@ -799,120 +796,49 @@ const DemoDrift = () => {
                                     )}
                                 </div>
 
-                                {/* Pre-Trade Details Panel */}
-                                {tradeDetails && parseFloat(tradeAmount) > 0 && (
-                                    <div className={`rounded-lg p-4 space-y-3 border ${tradeDetails.canAfford
-                                        ? "bg-gradient-to-r from-green-500/5 to-emerald-500/5 border-green-500/20"
-                                        : "bg-gradient-to-r from-red-500/10 to-orange-500/10 border-red-500/30"
-                                        }`}>
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-2 text-sm font-medium">
-                                                {tradeDetails.canAfford ? (
-                                                    <Info className="h-4 w-4 text-green-500" />
-                                                ) : (
-                                                    <AlertTriangle className="h-4 w-4 text-red-500" />
-                                                )}
-                                                <span>Order Summary</span>
-                                            </div>
-                                            <span className={`text-xs px-2 py-1 rounded-full ${tradeDirection === "long"
-                                                ? "bg-green-500/20 text-green-500"
-                                                : "bg-red-500/20 text-red-500"
-                                                }`}>
-                                                {tradeDirection.toUpperCase()} {leverage}x
+                                {/* Pre-Trade Info */}
+                                {tradeDetails && (
+                                    <div className="rounded-lg border p-3 space-y-2 text-sm">
+                                        <div className="flex justify-between">
+                                            <span className="text-muted-foreground">Margin Required</span>
+                                            <span className={`font-mono font-medium ${tradeDetails.canAfford ? "" : "text-red-500"}`}>
+                                                ${tradeDetails.requiredMargin?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? "0.00"}
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span className="text-muted-foreground">Order Size</span>
+                                            <span className="font-mono font-medium">
+                                                {(parseFloat(tradeAmount) * leverage || 0).toFixed(2)} {PERP_MARKETS.find((m) => m.index === perpMarketIndex)?.symbol.replace("-PERP", "") ?? ""}
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span className="text-muted-foreground">Liquidation Price</span>
+                                            <span className="font-mono font-medium">
+                                                {tradeDetails.liquidationPrice
+                                                    ? `$${tradeDetails.liquidationPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                                    : "None"}
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span className="text-muted-foreground">Position</span>
+                                            <span className="font-mono font-medium">
+                                                ${tradeDetails.positionValue?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? "0.00"}
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span className="text-muted-foreground">Fees ({orderType === "market" ? "Taker" : "Maker"})</span>
+                                            <span className="font-mono font-medium">
+                                                ${tradeDetails.estimatedFee?.toFixed(4) ?? "0.00"}
+                                                <span className="text-xs text-muted-foreground ml-1">
+                                                    ({(tradeDetails.feeRate * 100).toFixed(2)}%)
+                                                </span>
                                             </span>
                                         </div>
 
-                                        <div className="grid grid-cols-2 gap-3 text-sm">
-                                            {/* Entry Price */}
-                                            <div className="space-y-0.5">
-                                                <p className="text-muted-foreground text-xs">Entry Price</p>
-                                                <p className="font-mono font-medium">
-                                                    ${tradeDetails.entryPrice?.toLocaleString(undefined, {
-                                                        minimumFractionDigits: 2,
-                                                        maximumFractionDigits: 2
-                                                    }) || "—"}
-                                                </p>
-                                            </div>
-
-                                            {/* Position Size (Notional) */}
-                                            <div className="space-y-0.5">
-                                                <p className="text-muted-foreground text-xs">Position Value</p>
-                                                <p className="font-mono font-medium">
-                                                    ${tradeDetails.positionValue?.toLocaleString(undefined, {
-                                                        minimumFractionDigits: 2,
-                                                        maximumFractionDigits: 2
-                                                    }) || "—"}
-                                                </p>
-                                            </div>
-
-                                            {/* Required Margin */}
-                                            <div className="space-y-0.5">
-                                                <p className="text-muted-foreground text-xs">Required Margin</p>
-                                                <p className={`font-mono font-medium ${tradeDetails.canAfford ? "text-green-500" : "text-red-500"
-                                                    }`}>
-                                                    ${tradeDetails.requiredMargin?.toLocaleString(undefined, {
-                                                        minimumFractionDigits: 2,
-                                                        maximumFractionDigits: 2
-                                                    }) || "—"}
-                                                </p>
-                                            </div>
-
-                                            {/* Estimated Fee */}
-                                            <div className="space-y-0.5">
-                                                <p className="text-muted-foreground text-xs">
-                                                    Est. Fee ({orderType === "market" ? "Taker" : "Maker"})
-                                                </p>
-                                                <p className="font-mono font-medium text-yellow-500">
-                                                    ${tradeDetails.estimatedFee?.toFixed(4) || "0.00"}
-                                                    <span className="text-xs text-muted-foreground ml-1">
-                                                        ({(tradeDetails.feeRate * 100).toFixed(2)}%)
-                                                    </span>
-                                                </p>
-                                            </div>
-
-                                            {/* Liquidation Price */}
-                                            <div className="space-y-0.5">
-                                                <p className="text-muted-foreground text-xs">Est. Liq. Price</p>
-                                                <p className={`font-mono font-medium ${tradeDirection === "long" ? "text-red-500" : "text-green-500"
-                                                    }`}>
-                                                    {tradeDetails.liquidationPrice
-                                                        ? `$${tradeDetails.liquidationPrice.toLocaleString(undefined, {
-                                                            minimumFractionDigits: 2,
-                                                            maximumFractionDigits: 2
-                                                        })}`
-                                                        : "—"
-                                                    }
-                                                </p>
-                                            </div>
-
-                                            {/* Effective Leverage */}
-                                            <div className="space-y-0.5">
-                                                <p className="text-muted-foreground text-xs">Effective Leverage</p>
-                                                <p className="font-mono font-medium">
-                                                    {tradeDetails.effectiveLeverage?.toFixed(2) || "—"}x
-                                                </p>
-                                            </div>
-                                        </div>
-
-                                        {/* Warning if cannot afford */}
                                         {!tradeDetails.canAfford && (
-                                            <div className="flex items-center gap-2 text-sm text-red-500 bg-red-500/10 rounded-md p-2">
-                                                <AlertTriangle className="h-4 w-4 flex-shrink-0" />
-                                                <span>
-                                                    Insufficient margin. You have ${tradeDetails.freeCollateral?.toFixed(2)} free,
-                                                    but need ${tradeDetails.requiredMargin?.toFixed(2)}.
-                                                </span>
-                                            </div>
-                                        )}
-
-                                        {/* Price Impact Warning for Market Orders */}
-                                        {orderType === "market" && tradeDetails.priceImpact > 0.001 && (
-                                            <div className="flex items-center gap-2 text-sm text-yellow-500 bg-yellow-500/10 rounded-md p-2">
-                                                <AlertTriangle className="h-4 w-4 flex-shrink-0" />
-                                                <span>
-                                                    Estimated price impact: {(tradeDetails.priceImpact * 100).toFixed(2)}%
-                                                </span>
-                                            </div>
+                                            <p className="text-xs text-red-500 pt-1">
+                                                Insufficient margin — ${tradeDetails.freeCollateral?.toFixed(2)} free, need ${tradeDetails.requiredMargin?.toFixed(2)}
+                                            </p>
                                         )}
                                     </div>
                                 )}
@@ -956,6 +882,186 @@ const DemoDrift = () => {
                                         </a>
                                     </div>
                                 )}
+                            </div>
+
+                            {/* ─── Account Overview: Positions, Balances, Orders ─── */}
+                            <div className="col-span-1 md:col-span-3 space-y-4">
+                                {/* Active Perp Positions */}
+                                {(() => {
+                                    const positions = getPositions();
+                                    if (positions.length === 0) return null;
+                                    return (
+                                        <div className="rounded-lg border p-4 space-y-3">
+                                            <h3 className="font-semibold">Active Positions</h3>
+                                            <div className="overflow-x-auto">
+                                                <table className="w-full text-sm">
+                                                    <thead>
+                                                        <tr className="border-b text-muted-foreground text-xs">
+                                                            <th className="text-left py-2">Market</th>
+                                                            <th className="text-left py-2">Side</th>
+                                                            <th className="text-right py-2">Size</th>
+                                                            <th className="text-right py-2">Entry</th>
+                                                            <th className="text-right py-2">Mark</th>
+                                                            <th className="text-right py-2">Liq. Price</th>
+                                                            <th className="text-right py-2">uPnL</th>
+                                                            <th className="text-right py-2">Notional</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {positions.map((pos) => (
+                                                            <tr key={pos.marketIndex} className="border-b last:border-0">
+                                                                <td className="py-2 font-medium">{pos.marketName}</td>
+                                                                <td className={`py-2 font-medium ${pos.direction === "long" ? "text-green-500" : pos.direction === "short" ? "text-red-500" : ""}`}>
+                                                                    {pos.direction.toUpperCase()}
+                                                                </td>
+                                                                <td className="py-2 text-right font-mono">{pos.size.toFixed(4)}</td>
+                                                                <td className="py-2 text-right font-mono">${pos.entryPrice.toFixed(2)}</td>
+                                                                <td className="py-2 text-right font-mono">${pos.markPrice.toFixed(2)}</td>
+                                                                <td className="py-2 text-right font-mono">
+                                                                    {pos.liquidationPrice ? `$${pos.liquidationPrice.toFixed(2)}` : "—"}
+                                                                </td>
+                                                                <td className={`py-2 text-right font-mono ${pos.unrealizedPnl >= 0 ? "text-green-500" : "text-red-500"}`}>
+                                                                    {pos.unrealizedPnl >= 0 ? "+" : ""}${pos.unrealizedPnl.toFixed(2)}
+                                                                </td>
+                                                                <td className="py-2 text-right font-mono">${pos.notionalValue.toFixed(2)}</td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    );
+                                })()}
+
+                                {/* Spot Balances */}
+                                {(() => {
+                                    const balances = getSpotBalances();
+                                    if (balances.length === 0) return null;
+                                    return (
+                                        <div className="rounded-lg border p-4 space-y-3">
+                                            <h3 className="font-semibold">Spot Balances</h3>
+                                            <div className="overflow-x-auto">
+                                                <table className="w-full text-sm">
+                                                    <thead>
+                                                        <tr className="border-b text-muted-foreground text-xs">
+                                                            <th className="text-left py-2">Token</th>
+                                                            <th className="text-left py-2">Type</th>
+                                                            <th className="text-right py-2">Balance</th>
+                                                            <th className="text-right py-2">USD Value</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {balances.map((bal) => (
+                                                            <tr key={bal.marketIndex} className="border-b last:border-0">
+                                                                <td className="py-2 font-medium">{bal.symbol}</td>
+                                                                <td className={`py-2 ${bal.balanceType === "deposit" ? "text-green-500" : "text-red-500"}`}>
+                                                                    {bal.balanceType === "deposit" ? "Deposit" : "Borrow"}
+                                                                </td>
+                                                                <td className="py-2 text-right font-mono">{bal.balance.toFixed(bal.decimals > 6 ? 6 : bal.decimals)}</td>
+                                                                <td className="py-2 text-right font-mono">${bal.balanceUsd.toFixed(2)}</td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    );
+                                })()}
+
+                                {/* All Orders (Open + Filled + Cancelled) */}
+                                {(() => {
+                                    const orders = getAllOrders();
+                                    if (orders.length === 0) return (
+                                        <div className="rounded-lg border p-4">
+                                            <h3 className="font-semibold mb-2">Order History</h3>
+                                            <p className="text-sm text-muted-foreground">No orders found on this account.</p>
+                                        </div>
+                                    );
+
+                                    const getStatusLabel = (status: any) => {
+                                        if (status?.open) return "Open";
+                                        if (status?.filled) return "Filled";
+                                        if (status?.canceled) return "Cancelled";
+                                        return "Init";
+                                    };
+                                    const getStatusColor = (status: any) => {
+                                        if (status?.open) return "text-blue-500";
+                                        if (status?.filled) return "text-green-500";
+                                        if (status?.canceled) return "text-red-500";
+                                        return "text-muted-foreground";
+                                    };
+                                    const getOrderTypeLabel = (ot: any) => {
+                                        if (ot?.market) return "Market";
+                                        if (ot?.limit) return "Limit";
+                                        if (ot?.triggerMarket) return "Trigger Market";
+                                        if (ot?.triggerLimit) return "Trigger Limit";
+                                        if (ot?.oracle) return "Oracle";
+                                        return "Unknown";
+                                    };
+                                    const getDirectionLabel = (dir: any) => {
+                                        if (dir?.long) return "Long";
+                                        if (dir?.short) return "Short";
+                                        return "—";
+                                    };
+                                    const getDirectionColor = (dir: any) => {
+                                        if (dir?.long) return "text-green-500";
+                                        if (dir?.short) return "text-red-500";
+                                        return "";
+                                    };
+
+                                    return (
+                                        <div className="rounded-lg border p-4 space-y-3">
+                                            <h3 className="font-semibold">Order History ({orders.length})</h3>
+                                            <div className="overflow-x-auto">
+                                                <table className="w-full text-sm">
+                                                    <thead>
+                                                        <tr className="border-b text-muted-foreground text-xs">
+                                                            <th className="text-left py-2">ID</th>
+                                                            <th className="text-left py-2">Status</th>
+                                                            <th className="text-left py-2">Type</th>
+                                                            <th className="text-left py-2">Market</th>
+                                                            <th className="text-left py-2">Side</th>
+                                                            <th className="text-right py-2">Size</th>
+                                                            <th className="text-right py-2">Filled</th>
+                                                            <th className="text-right py-2">Price</th>
+                                                            <th className="text-right py-2">Trigger</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {orders.map((order: any) => {
+                                                            const marketMeta = PERP_MARKETS.find(m => m.index === order.marketIndex);
+                                                            const size = bnToBase(order.baseAssetAmount);
+                                                            const filled = bnToBase(order.baseAssetAmountFilled);
+                                                            const price = bnToPrice(order.price);
+                                                            const trigger = order.triggerPrice?.isZero?.() ? null : bnToPrice(order.triggerPrice);
+                                                            return (
+                                                                <tr key={order.orderId} className="border-b last:border-0">
+                                                                    <td className="py-2 font-mono">#{order.orderId}</td>
+                                                                    <td className={`py-2 font-medium ${getStatusColor(order.status)}`}>
+                                                                        {getStatusLabel(order.status)}
+                                                                    </td>
+                                                                    <td className="py-2">{getOrderTypeLabel(order.orderType)}</td>
+                                                                    <td className="py-2 font-medium">{marketMeta?.symbol ?? `PERP-${order.marketIndex}`}</td>
+                                                                    <td className={`py-2 font-medium ${getDirectionColor(order.direction)}`}>
+                                                                        {getDirectionLabel(order.direction)}
+                                                                    </td>
+                                                                    <td className="py-2 text-right font-mono">{size.toFixed(4)}</td>
+                                                                    <td className="py-2 text-right font-mono">{filled.toFixed(4)}</td>
+                                                                    <td className="py-2 text-right font-mono">
+                                                                        {price > 0 ? `$${price.toFixed(2)}` : "Market"}
+                                                                    </td>
+                                                                    <td className="py-2 text-right font-mono">
+                                                                        {trigger ? `$${trigger.toFixed(2)}` : "—"}
+                                                                    </td>
+                                                                </tr>
+                                                            );
+                                                        })}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    );
+                                })()}
                             </div>
                         </div>
                     </div>

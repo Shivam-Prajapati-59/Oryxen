@@ -327,7 +327,12 @@ export interface ScaleOrderResult {
 export interface SpotBalance {
   marketIndex: number;
   symbol: string;
+  /** Raw token balance in human-readable units (e.g. 1.5 SOL) */
   balance: number;
+  /** Balance value in USD */
+  balanceUsd: number;
+  /** Token decimals from the spot market account */
+  decimals: number;
   balanceType: "deposit" | "borrow";
 }
 

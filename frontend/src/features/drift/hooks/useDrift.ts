@@ -1,44 +1,38 @@
 "use client";
 
-import {
-  DriftClient,
-  User,
-  initialize,
-  IWallet,
-  BN,
-  OptionalOrderParams,
-  OrderType,
-  MarketType,
-  PostOnlyParams,
-  PositionDirection,
-  OrderTriggerCondition,
-  SpotMarkets,
-} from "@drift-labs/sdk-browser";
-import { getAssociatedTokenAddress } from "@solana/spl-token";
-import {
-  Connection,
-  PublicKey,
-  Transaction,
-  VersionedTransaction,
-} from "@solana/web3.js";
-import { useWallets } from "@privy-io/react-auth/solana";
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import { useWallets } from "@privy-io/react-auth/solana";
+import type { DriftClient, User } from "@drift-labs/sdk-browser";
+
+import { isValidSolanaAddress } from "@/lib/solana";
+import { createDriftClient, getDriftConnection } from "../adapter/client";
 import {
+  deposit as adapterDeposit,
+  withdraw as adapterWithdraw,
+} from "../adapter/collateral";
+import { placeOrder as adapterPlaceOrder } from "../adapter/orders";
+import {
+  getOraclePrice as adapterGetOraclePrice,
+  getPerpMarketInfo as adapterGetPerpMarketInfo,
+} from "../adapter/market-data";
+import {
+  getAccountSummary,
+  getActivePositions as adapterGetActivePositions,
+  getSpotBalances as adapterGetSpotBalances,
+  canAffordTrade as adapterCanAffordTrade,
+} from "../adapter/positions";
+import { bnToUsd, bnToPrice, normaliseDriftError } from "../adapter/utils";
+import type {
   ExecuteTradeParams,
-  toOrderType,
-  toPositionDirection,
-  getTriggerCondition,
   TradeResult,
+  OrderVariant,
+  TradeDirection,
 } from "../types";
-import { isValidSolanaAddress, createPrivyWalletAdapter } from "@/lib/solana";
-import {
-  DRIFT_ENV,
-  DRIFT_RPC_URL,
-  DRIFT_CHAIN_PREFIX,
-} from "@/features/drift/constants";
 
 export const useDrift = () => {
   const { wallets } = useWallets();
+
+  // ─── State ─────────────────────────────────────────────────────────
   const [driftClient, setDriftClient] = useState<DriftClient | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -47,64 +41,61 @@ export const useDrift = () => {
   const [userAccountExists, setUserAccountExists] = useState<boolean | null>(
     null,
   );
-  const connectionRef = useRef<Connection | null>(null);
-  const isMountedRef = useRef<boolean>(true);
+
+  // ─── Refs ──────────────────────────────────────────────────────────
+  const isMountedRef = useRef(true);
   const driftClientRef = useRef<DriftClient | null>(null);
-  const isInitializingRef = useRef<boolean>(false);
+  const isInitializingRef = useRef(false);
+
+  // ─── Derived ───────────────────────────────────────────────────────
+  const connection = useMemo(() => getDriftConnection(), []);
 
   const privyWallet = useMemo(() => {
-    const solanaWallet = wallets.find((w) => isValidSolanaAddress(w.address));
-    return solanaWallet || null;
+    return wallets.find((w) => isValidSolanaAddress(w.address)) ?? null;
   }, [wallets]);
 
-  const connection = useMemo(() => {
-    if (!connectionRef.current) {
-      connectionRef.current = new Connection(DRIFT_RPC_URL, "confirmed");
-    }
-    return connectionRef.current;
-  }, []);
+  // ─── Helpers ───────────────────────────────────────────────────────
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const safeSet = useCallback(
+    (setter: React.Dispatch<React.SetStateAction<any>>, value: unknown) => {
+      if (isMountedRef.current) setter(value);
+    },
+    [],
+  );
 
-  const sdkConfig = useMemo(() => initialize({ env: DRIFT_ENV }), []);
+  const withLoading = useCallback(
+    async <T>(fn: () => Promise<T>): Promise<T> => {
+      safeSet(setIsLoading, true);
+      safeSet(setError, null);
+      try {
+        return await fn();
+      } catch (err) {
+        const msg = normaliseDriftError(err);
+        safeSet(setError, msg);
+        throw new Error(msg);
+      } finally {
+        safeSet(setIsLoading, false);
+      }
+    },
+    [safeSet],
+  );
 
-  const getTokenAddress = (
-    mintAddress: string,
-    userPubKey: string,
-  ): Promise<PublicKey> => {
-    return getAssociatedTokenAddress(
-      new PublicKey(mintAddress),
-      new PublicKey(userPubKey),
-    );
-  };
-
-  // Initialize DriftClient with Privy wallet
+  // ─── Initialize ────────────────────────────────────────────────────
   const initializeDriftClient = useCallback(async () => {
     if (!privyWallet) {
       setError("No Privy wallet connected");
       return null;
     }
-
     if (isInitializingRef.current || driftClientRef.current) {
       return driftClientRef.current;
     }
 
     isInitializingRef.current = true;
-    setIsLoading(true);
-    setError(null);
+    safeSet(setIsLoading, true);
+    safeSet(setError, null);
 
     try {
-      const wallet = createPrivyWalletAdapter(
-        privyWallet,
-        DRIFT_CHAIN_PREFIX,
-      ) as unknown as IWallet;
-
-      const client = new DriftClient({
-        connection,
-        wallet,
-        env: DRIFT_ENV,
-        programID: new PublicKey(sdkConfig.DRIFT_PROGRAM_ID),
-      });
-
-      await client.subscribe();
+      const client = await createDriftClient(privyWallet);
 
       if (!isMountedRef.current) {
         await client.unsubscribe();
@@ -115,419 +106,321 @@ export const useDrift = () => {
       setDriftClient(client);
       setIsInitialized(true);
 
+      // Check whether user account exists (SDK-recommended approach)
       try {
         const driftUser = client.getUser();
+        const exists = await driftUser.exists();
         setUser(driftUser);
-        setUserAccountExists(true);
+        setUserAccountExists(exists);
       } catch {
-        console.log("User account not found - may need to initialize");
         setUserAccountExists(false);
       }
 
       return client;
     } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : "Failed to initialize Drift";
-      if (isMountedRef.current) {
-        setError(errorMessage);
-      }
-      console.error("Drift initialization error:", err);
+      const msg = normaliseDriftError(err);
+      safeSet(setError, msg);
       return null;
     } finally {
       isInitializingRef.current = false;
-      if (isMountedRef.current) {
-        setIsLoading(false);
-      }
+      safeSet(setIsLoading, false);
     }
-  }, [privyWallet, connection, sdkConfig]);
+  }, [privyWallet, safeSet]);
 
-  // Initialize user account if it doesn't exist
+  // ─── User Account ──────────────────────────────────────────────────
   const initializeUserAccount = useCallback(
-    async (subAccountId: number = 0, name: string = "Main Account") => {
-      if (!driftClient) {
-        throw new Error("Drift client not initialized");
-      }
+    async (subAccountId = 0, name = "Main Account") => {
+      if (!driftClient) throw new Error("Drift client not initialized");
 
-      if (!isMountedRef.current) return null;
-      setIsLoading(true);
-      setError(null);
-
-      try {
+      return withLoading(async () => {
         const [txSig, userPublicKey] = await driftClient.initializeUserAccount(
           subAccountId,
           name,
         );
-        console.log("User account initialized:", userPublicKey.toString());
-        console.log("Transaction signature:", txSig);
 
-        if (isMountedRef.current) {
-          const driftUser = driftClient.getUser();
-          setUser(driftUser);
-          setUserAccountExists(true);
-        }
+        const driftUser = driftClient.getUser();
+        safeSet(setUser, driftUser);
+        safeSet(setUserAccountExists, true);
 
         return { txSig, userPublicKey };
-      } catch (err) {
-        const errorMessage =
-          err instanceof Error
-            ? err.message
-            : "Failed to initialize user account";
-        if (isMountedRef.current) {
-          setError(errorMessage);
-        }
-        throw err;
-      } finally {
-        if (isMountedRef.current) {
-          setIsLoading(false);
-        }
+      });
+    },
+    [driftClient, withLoading, safeSet],
+  );
+
+  // ─── Deposit / Withdraw ────────────────────────────────────────────
+  const deposit = useCallback(
+    (amount: number, symbol: string, subAccountId = 0) => {
+      if (!driftClient) throw new Error("Drift client not initialized");
+      return withLoading(() =>
+        adapterDeposit(driftClient, amount, symbol, subAccountId),
+      );
+    },
+    [driftClient, withLoading],
+  );
+
+  const withdraw = useCallback(
+    (amount: number, symbol: string, reduceOnly = false, subAccountId = 0) => {
+      if (!driftClient) throw new Error("Drift client not initialized");
+      return withLoading(() =>
+        adapterWithdraw(driftClient, amount, symbol, reduceOnly, subAccountId),
+      );
+    },
+    [driftClient, withLoading],
+  );
+
+  // ─── Orders ────────────────────────────────────────────────────────
+  const placeOrder = useCallback(
+    (params: ExecuteTradeParams): Promise<TradeResult> => {
+      if (!driftClient) throw new Error("Drift client not initialized");
+      if (!isInitialized) throw new Error("Drift client not fully initialized");
+      return withLoading(() => adapterPlaceOrder(driftClient, params));
+    },
+    [driftClient, isInitialized, withLoading],
+  );
+
+  // ─── Market data ──────────────────────────────────────────────────
+  const getOraclePrice = useCallback(
+    (marketIndex: number) => {
+      if (!driftClient) return null;
+      try {
+        return adapterGetOraclePrice(driftClient, marketIndex);
+      } catch {
+        return null;
       }
     },
     [driftClient],
   );
 
-  const deposit = useCallback(
-    async (amount: number, symbol: string, subAccountId: number = 0) => {
-      if (!driftClient) throw new Error("Drift client not initialized");
-      if (!privyWallet) throw new Error("No wallet connected");
-      if (!isMountedRef.current) return null;
-
-      setIsLoading(true);
-      setError(null);
-
-      const walletPublicKey = new PublicKey(privyWallet.address);
-      const usdcTokenAddress = await getTokenAddress(
-        sdkConfig.USDC_MINT_ADDRESS,
-        walletPublicKey.toString(),
-      );
-
+  const getPerpMarketInfo = useCallback(
+    (marketIndex: number) => {
+      if (!driftClient) return null;
       try {
-        const spotInfo = SpotMarkets[DRIFT_ENV].find(
-          (market) => market.symbol === symbol,
-        );
-
-        if (!spotInfo) {
-          throw new Error(`Spot market for ${symbol} not found`);
-        }
-
-        const marketIndex = spotInfo.marketIndex;
-        console.log(`Depositing ${symbol} to Market Index ${marketIndex}`);
-
-        const associatedTokenAccount =
-          await driftClient.getAssociatedTokenAccount(marketIndex);
-
-        const depositAmount = driftClient.convertToSpotPrecision(
-          marketIndex,
-          amount,
-        );
-
-        let tokenBalance = new BN(0);
-
-        if (symbol === "SOL") {
-          const rawBalance = await connection.getBalance(walletPublicKey);
-          tokenBalance = new BN(rawBalance);
-        }
-
-        if (symbol === "USDC") {
-          const tokenAddress = getTokenAddress(
-            usdcTokenAddress.toString(),
-            walletPublicKey.toString(),
-          );
-        } else {
-          try {
-            const tokenAccountInfo = await connection.getTokenAccountBalance(
-              associatedTokenAccount,
-            );
-            tokenBalance = new BN(tokenAccountInfo.value.amount);
-          } catch (e) {
-            tokenBalance = new BN(0);
-          }
-        }
-
-        if (depositAmount.gt(tokenBalance)) {
-          const readableBalance =
-            tokenBalance.toNumber() /
-            Math.pow(10, spotInfo.precisionExp.toNumber());
-          throw new Error(
-            `Insufficient balance. You have ${readableBalance} ${symbol} but need ${amount}`,
-          );
-        }
-
-        const tx = await driftClient.createDepositTxn(
-          depositAmount,
-          marketIndex,
-          associatedTokenAccount,
-          subAccountId,
-        );
-
-        const { txSig } = await driftClient.sendTransaction(
-          tx,
-          [],
-          driftClient.opts,
-        );
-
-        const explorerUrl =
-          DRIFT_ENV === "devnet"
-            ? `https://solscan.io/tx/${txSig}?cluster=devnet`
-            : `https://solscan.io/tx/${txSig}`;
-
-        return { txSig, explorerUrl };
-      } catch (err) {
-        const errorMessage =
-          err instanceof Error ? err.message : "Failed to deposit";
-        if (isMountedRef.current) setError(errorMessage);
-        throw err;
-      } finally {
-        if (isMountedRef.current) setIsLoading(false);
+        return adapterGetPerpMarketInfo(driftClient, marketIndex);
+      } catch {
+        return null;
       }
     },
-    [driftClient, privyWallet, connection],
+    [driftClient],
   );
 
-  const withdraw = useCallback(
-    async (
-      amount: number,
-      marketIndex: number = 0,
-      subAccountId: number = 0,
-    ) => {
-      if (!driftClient) throw new Error("Drift client not initialized");
-      if (!privyWallet) throw new Error("No wallet connected");
-      if (!isMountedRef.current) return null;
+  // ─── Account data ─────────────────────────────────────────────────
+  const getFreeCollateral = useCallback(() => {
+    if (!user) return null;
+    try {
+      return bnToUsd(user.getFreeCollateral());
+    } catch {
+      return null;
+    }
+  }, [user]);
 
-      setIsLoading(true);
-      setError(null);
+  const getTotalCollateral = useCallback(() => {
+    if (!user) return null;
+    try {
+      return bnToUsd(user.getTotalCollateral());
+    } catch {
+      return null;
+    }
+  }, [user]);
 
-      try {
-        const withdrawAmount = driftClient.convertToSpotPrecision(
-          marketIndex,
-          amount,
-        );
-
-        const associatedTokenAccount =
-          await driftClient.getAssociatedTokenAccount(marketIndex);
-
-        const txSig = await driftClient.withdraw(
-          withdrawAmount,
-          marketIndex,
-          associatedTokenAccount,
-          false,
-          subAccountId,
-        );
-
-        const explorerUrl =
-          DRIFT_ENV === "devnet"
-            ? `https://solscan.io/tx/${txSig}?cluster=devnet`
-            : `https://solscan.io/tx/${txSig}`;
-
-        return { txSig, explorerUrl };
-      } catch (err) {
-        const errorMessage =
-          err instanceof Error ? err.message : "Failed to withdraw";
-        if (isMountedRef.current) {
-          setError(errorMessage);
-        }
-        throw err;
-      } finally {
-        if (isMountedRef.current) {
-          setIsLoading(false);
-        }
-      }
-    },
-    [driftClient, privyWallet, connection],
-  );
-
-  const placeOrder = useCallback(
-    async (params: ExecuteTradeParams): Promise<TradeResult> => {
-      if (!driftClient) throw new Error("Drift client not initialized");
-      if (!isInitialized)
-        throw new Error("Drift client is not fully initialized");
-
-      if (!params.marketIndex && params.marketIndex !== 0) {
-        throw new Error("Market index is required");
-      }
-      if (!params.direction) {
-        throw new Error("Trade direction is required");
-      }
-      if (!params.baseAssetAmount || params.baseAssetAmount <= 0) {
-        throw new Error("Base asset amount must be greater than 0");
-      }
-
-      if (!isMountedRef.current) return { txSig: "", explorerUrl: "" };
-      setIsLoading(true);
-      setError(null);
-
-      try {
-        const {
-          marketIndex,
-          orderVariant,
-          baseAssetAmount,
-          price: uiPrice,
-          triggerPrice: uiTriggerPrice,
-          startPrice,
-          endPrice,
-          orderCount,
-          direction: uiDirection,
-          reduceOnly,
-          postOnly,
-          subAccountId = 0,
-        } = params;
-
-        const direction = toPositionDirection(uiDirection);
-        const orderType = toOrderType(orderVariant);
-
-        // CASE 1: SCALE ORDERS
-        if (orderVariant === "scale") {
-          if (!startPrice || !endPrice || !orderCount || orderCount < 2) {
-            throw new Error(
-              "Scale orders require startPrice, endPrice, and orderCount >= 2",
-            );
-          }
-
-          const orderParamsList: OptionalOrderParams[] = [];
-          const step = (endPrice - startPrice) / (orderCount - 1);
-
-          const singleOrderSize = baseAssetAmount / orderCount;
-          const baseAmountBN =
-            driftClient.convertToPerpPrecision(singleOrderSize);
-
-          for (let i = 0; i < orderCount; i++) {
-            const priceLevel = startPrice + step * i;
-            const priceBN = driftClient.convertToPricePrecision(priceLevel);
-
-            orderParamsList.push({
-              orderType: OrderType.LIMIT,
-              marketType: MarketType.PERP,
-              marketIndex,
-              direction,
-              baseAssetAmount: baseAmountBN,
-              price: priceBN,
-              reduceOnly: reduceOnly || false,
-              postOnly: postOnly
-                ? PostOnlyParams.MUST_POST_ONLY
-                : PostOnlyParams.NONE,
-            });
-          }
-
-          const orderIxs = await driftClient.getPlaceOrdersIx(
-            orderParamsList,
-            subAccountId,
-          );
-
-          const tx = await driftClient.buildTransaction(orderIxs);
-
-          const { txSig } = await driftClient.sendTransaction(
-            tx,
-            [],
-            driftClient.opts,
-          );
-
-          return {
-            txSig,
-            explorerUrl: `https://solscan.io/tx/${txSig}${
-              DRIFT_ENV === "devnet" ? "?cluster=devnet" : ""
-            }`,
-          };
-        }
-
-        // CASE 2: SINGLE ORDERS
-        const baseAmountBN =
-          driftClient.convertToPerpPrecision(baseAssetAmount);
-
-        let priceBN: BN | undefined;
-        if (orderVariant === "market") {
-          priceBN = undefined;
-        } else {
-          if (uiPrice === undefined)
-            throw new Error("Price is required for this order type");
-          priceBN = driftClient.convertToPricePrecision(uiPrice);
-        }
-
-        let triggerPriceBN: BN | undefined;
-        let triggerCondition: OrderTriggerCondition | undefined;
-
-        if (orderVariant === "takeProfit" || orderVariant === "stopLimit") {
-          if (uiTriggerPrice === undefined)
-            throw new Error("Trigger price is required");
-          triggerPriceBN = driftClient.convertToPricePrecision(uiTriggerPrice);
-          triggerCondition = getTriggerCondition(orderVariant, uiDirection);
-        }
-
-        const orderParams: OptionalOrderParams = {
-          orderType,
-          marketType: MarketType.PERP,
-          marketIndex,
-          direction,
-          baseAssetAmount: baseAmountBN,
-          reduceOnly: reduceOnly || false,
-          postOnly: postOnly
-            ? PostOnlyParams.MUST_POST_ONLY
-            : PostOnlyParams.NONE,
+  const canAffordTrade = useCallback(
+    (baseAssetAmount: number, marketIndex: number) => {
+      if (!user || !driftClient)
+        return {
+          canAfford: false,
+          reason: "Not initialized",
+          freeCollateral: 0,
         };
-
-        if (priceBN !== undefined) {
-          orderParams.price = priceBN;
-        }
-
-        if (triggerPriceBN !== undefined) {
-          orderParams.triggerPrice = triggerPriceBN;
-          orderParams.triggerCondition = triggerCondition;
-        }
-
-        const orderIx = await driftClient.getPlacePerpOrderIx(
-          orderParams,
-          subAccountId,
+      try {
+        return adapterCanAffordTrade(
+          driftClient,
+          user,
+          baseAssetAmount,
+          marketIndex,
         );
+      } catch {
+        return {
+          canAfford: false,
+          reason: "Could not calculate margin",
+          freeCollateral: 0,
+        };
+      }
+    },
+    [user, driftClient],
+  );
 
-        const tx = await driftClient.buildTransaction(orderIx);
+  const getAccount = useCallback(() => {
+    if (!driftClient || !user) return null;
+    try {
+      return getAccountSummary(driftClient, user);
+    } catch {
+      return null;
+    }
+  }, [driftClient, user]);
 
-        const { txSig } = await driftClient.sendTransaction(
-          tx,
-          [],
-          driftClient.opts,
-        );
+  const getPositions = useCallback(() => {
+    if (!driftClient || !user) return [];
+    try {
+      return adapterGetActivePositions(driftClient, user);
+    } catch {
+      return [];
+    }
+  }, [driftClient, user]);
+
+  const getSpotBalancesData = useCallback(() => {
+    if (!driftClient || !user) return [];
+    try {
+      return adapterGetSpotBalances(driftClient, user);
+    } catch {
+      return [];
+    }
+  }, [driftClient, user]);
+
+  /**
+   * Get ALL orders from UserAccount (open + filled + cancelled).
+   * The on-chain account has 32 order slots. Slots with orderId === 0 are empty.
+   */
+  const getAllOrders = useCallback(() => {
+    if (!user) return [];
+    try {
+      const userAccount = user.getUserAccount();
+      const allOrders = userAccount.orders ?? [];
+      return allOrders.filter((o: any) => o.orderId !== 0);
+    } catch {
+      return [];
+    }
+  }, [user]);
+  // ─── Trade details (pre-trade estimate, no hardcoded values) ────────
+  const calculateTradeDetails = useCallback(
+    (
+      marketIndex: number,
+      baseAssetAmount: number,
+      direction: TradeDirection,
+      leverage: number,
+      orderVariant: OrderVariant,
+      limitPrice?: number,
+    ) => {
+      const zeroResult = (lev: number) => ({
+        entryPrice: 0,
+        positionValue: 0,
+        requiredMargin: 0,
+        estimatedFee: 0,
+        feeRate: 0,
+        liquidationPrice: null as number | null,
+        effectiveLeverage: lev,
+        freeCollateral: 0,
+        canAfford: false,
+        priceImpact: 0,
+      });
+
+      if (!driftClient || !user) {
+        return zeroResult(leverage);
+      }
+
+      try {
+        // Oracle price (or user-supplied limit price)
+        const oracleData = driftClient.getOracleDataForPerpMarket(marketIndex);
+        if (!oracleData?.price) {
+          console.warn("[Drift] No oracle data for market", marketIndex);
+          return zeroResult(leverage);
+        }
+        const oraclePrice = bnToPrice(oracleData.price);
+        const entryPrice = limitPrice ?? oraclePrice;
+
+        // Position value
+        const positionValue = baseAssetAmount * entryPrice;
+
+        // Read margin ratio from market account (not hardcoded)
+        const market = driftClient.getPerpMarketAccount(marketIndex);
+        const initialMarginRatio = market
+          ? market.marginRatioInitial / 10_000
+          : 0.1; // fallback only if market unavailable
+        const requiredMargin = positionValue * initialMarginRatio;
+
+        // Fee from state account's fee structure (avoids User.getUserFeeTier
+        // which requires an internal driftClient ref that may not be wired)
+        let feeRate = 0;
+        try {
+          const stateAccount = driftClient.getStateAccount();
+          const feeTier = stateAccount.perpFeeStructure.feeTiers[0]; // default tier
+          const isTaker =
+            orderVariant === "market" ||
+            orderVariant === "takeProfit" ||
+            orderVariant === "stopLimit";
+          if (isTaker) {
+            feeRate =
+              feeTier.feeDenominator > 0
+                ? feeTier.feeNumerator / feeTier.feeDenominator
+                : 0.001;
+          } else {
+            feeRate =
+              feeTier.makerRebateDenominator > 0
+                ? feeTier.makerRebateNumerator / feeTier.makerRebateDenominator
+                : 0;
+          }
+        } catch (feeErr) {
+          console.warn("[Drift] Fee tier read failed, using defaults:", feeErr);
+          feeRate = orderVariant === "market" ? 0.001 : 0;
+        }
+        const estimatedFee = positionValue * Math.abs(feeRate);
+
+        // Free collateral & affordability
+        let freeCol = 0;
+        let totalCol = 0;
+        try {
+          freeCol = bnToUsd(user.getFreeCollateral());
+          totalCol = bnToUsd(user.getTotalCollateral());
+        } catch (colErr) {
+          console.warn("[Drift] Collateral read failed:", colErr);
+        }
+        const canAfford = freeCol >= requiredMargin;
+
+        // Effective leverage
+        let effectiveLeverage = leverage;
+        try {
+          if (totalCol > 0) {
+            const hasPositions = user.getActivePerpPositions().length > 0;
+            effectiveLeverage =
+              (positionValue + totalCol * (hasPositions ? 1 : 0)) / totalCol;
+          }
+        } catch {
+          // keep input leverage as fallback
+        }
 
         return {
-          txSig,
-          explorerUrl: `https://solscan.io/tx/${txSig}${
-            DRIFT_ENV === "devnet" ? "?cluster=devnet" : ""
-          }`,
+          entryPrice,
+          positionValue,
+          requiredMargin,
+          estimatedFee,
+          feeRate,
+          liquidationPrice: null as number | null, // available post-trade via getAccount()
+          effectiveLeverage,
+          freeCollateral: freeCol,
+          canAfford,
+          priceImpact: 0, // no fake estimate — real impact requires on-chain simulation
         };
       } catch (err) {
-        let msg = err instanceof Error ? err.message : "Trade execution failed";
-
-        if (
-          msg.includes("0x1773") ||
-          msg.includes("6003") ||
-          msg.includes("InsufficientCollateral")
-        ) {
-          msg =
-            "Insufficient collateral. Please deposit more funds or reduce your position size/leverage.";
-        } else if (
-          msg.includes("0x66") ||
-          msg.includes("102") ||
-          msg.includes("InstructionDidNotDeserialize")
-        ) {
-          msg = "Order parameters invalid. Please check your inputs.";
-        } else if (msg.includes("0x1") || msg.includes("InsufficientFunds")) {
-          msg = "Insufficient funds in wallet.";
-        }
-
-        if (isMountedRef.current) {
-          setError(msg);
-        }
-        throw new Error(msg);
-      } finally {
-        if (isMountedRef.current) {
-          setIsLoading(false);
-        }
+        console.error("[Drift] calculateTradeDetails failed:", err);
+        return zeroResult(leverage);
       }
     },
-    [driftClient, isInitialized],
+    [driftClient, user],
   );
 
-  const clearError = useCallback(() => {
-    setError(null);
-  }, []);
+  // ─── Refresh ───────────────────────────────────────────────────────
+  const refreshUser = useCallback(async () => {
+    if (!driftClient || !isMountedRef.current) return;
+    try {
+      await driftClient.fetchAccounts();
+      safeSet(setUser, driftClient.getUser());
+    } catch (err) {
+      console.error("Error refreshing user:", err);
+    }
+  }, [driftClient, safeSet]);
 
+  const clearError = useCallback(() => setError(null), []);
+
+  // ─── Lifecycle ─────────────────────────────────────────────────────
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
@@ -556,27 +449,7 @@ export const useDrift = () => {
     }
   }, [privyWallet]);
 
-  const refreshUser = useCallback(async () => {
-    if (!driftClient || !isMountedRef.current) return;
-    try {
-      await driftClient.fetchAccounts();
-      const driftUser = driftClient.getUser();
-      if (isMountedRef.current) {
-        setUser(driftUser);
-      }
-    } catch (err) {
-      console.error("Error refreshing user:", err);
-    }
-  }, [driftClient]);
-
-  const getSpotIndex = useCallback((symbol: string): number => {
-    const market = SpotMarkets[DRIFT_ENV].find((m) => m.symbol === symbol);
-    if (!market) {
-      throw new Error(`Spot market ${symbol} not found`);
-    }
-    return market.marketIndex;
-  }, []);
-
+  // ─── Return ────────────────────────────────────────────────────────
   return {
     // State
     driftClient,
@@ -596,200 +469,18 @@ export const useDrift = () => {
     placeOrder,
     clearError,
     refreshUser,
-    getSpotIndex,
 
-    getFreeCollateral: useCallback(() => {
-      if (!user) return null;
-      try {
-        const freeCollateral = user.getFreeCollateral();
-        return freeCollateral.toNumber() / 1e6;
-      } catch {
-        return null;
-      }
-    }, [user]),
-
-    getTotalCollateral: useCallback(() => {
-      if (!user) return null;
-      try {
-        const totalCollateral = user.getTotalCollateral();
-        return totalCollateral.toNumber() / 1e6;
-      } catch {
-        return null;
-      }
-    }, [user]),
-
-    canAffordTrade: useCallback(
-      (baseAssetAmount: number, marketIndex: number) => {
-        if (!user || !driftClient)
-          return { canAfford: false, reason: "Not initialized" };
-        try {
-          const freeCollateral = user.getFreeCollateral();
-          const freeCollateralUsd = freeCollateral.toNumber() / 1e6;
-          const oracleData =
-            driftClient.getOracleDataForPerpMarket(marketIndex);
-          const oraclePrice = oracleData.price.toNumber() / 1e6;
-          const positionValue = baseAssetAmount * oraclePrice;
-          const estimatedMargin = positionValue * 0.05;
-
-          if (freeCollateralUsd < estimatedMargin) {
-            return {
-              canAfford: false,
-              reason: `Insufficient collateral. You have $${freeCollateralUsd.toFixed(
-                2,
-              )} free, but need ~$${estimatedMargin.toFixed(2)} margin.`,
-              freeCollateral: freeCollateralUsd,
-              requiredMargin: estimatedMargin,
-            };
-          }
-
-          return {
-            canAfford: true,
-            freeCollateral: freeCollateralUsd,
-            requiredMargin: estimatedMargin,
-          };
-        } catch (err) {
-          return { canAfford: false, reason: "Could not calculate margin" };
-        }
-      },
-      [user, driftClient],
-    ),
-
-    getOraclePrice: useCallback(
-      (marketIndex: number): number | null => {
-        if (!driftClient) return null;
-        try {
-          const oracleData =
-            driftClient.getOracleDataForPerpMarket(marketIndex);
-          return oracleData.price.toNumber() / 1e6;
-        } catch {
-          return null;
-        }
-      },
-      [driftClient],
-    ),
-
-    getPerpMarketInfo: useCallback(
-      (marketIndex: number) => {
-        if (!driftClient) return null;
-        try {
-          const market = driftClient.getPerpMarketAccount(marketIndex);
-          if (!market) return null;
-
-          const oracleData =
-            driftClient.getOracleDataForPerpMarket(marketIndex);
-          const oraclePrice = oracleData.price.toNumber() / 1e6;
-
-          const takerFee = 0.001;
-          const makerFee = 0;
-
-          const lastFundingRate = market.amm?.lastFundingRate
-            ? market.amm.lastFundingRate.toNumber() / 1e9
-            : 0;
-
-          const fundingRate8h = lastFundingRate * 8;
-          const fundingRateAnnualized = lastFundingRate * 24 * 365;
-
-          const markPrice = market.amm?.lastMarkPriceTwap
-            ? market.amm.lastMarkPriceTwap.toNumber() / 1e6
-            : oraclePrice;
-
-          const baseAssetAmountLong = market.amm?.baseAssetAmountLong
-            ? market.amm.baseAssetAmountLong.abs().toNumber() / 1e9
-            : 0;
-          const baseAssetAmountShort = market.amm?.baseAssetAmountShort
-            ? market.amm.baseAssetAmountShort.abs().toNumber() / 1e9
-            : 0;
-
-          return {
-            oraclePrice,
-            markPrice,
-            takerFee,
-            makerFee,
-            fundingRate: lastFundingRate,
-            fundingRate8h,
-            fundingRateAnnualized,
-            openInterestLong: baseAssetAmountLong,
-            openInterestShort: baseAssetAmountShort,
-          };
-        } catch (err) {
-          console.error("Error getting perp market info:", err);
-          return null;
-        }
-      },
-      [driftClient],
-    ),
-
-    calculateTradeDetails: useCallback(
-      (
-        marketIndex: number,
-        baseAssetAmount: number,
-        direction: "long" | "short",
-        leverage: number,
-        orderType: "market" | "limit" | "takeProfit" | "stopLimit" | "scale",
-        limitPrice?: number,
-      ) => {
-        if (!driftClient || !user) return null;
-        try {
-          const oracleData =
-            driftClient.getOracleDataForPerpMarket(marketIndex);
-          const oraclePrice = oracleData.price.toNumber() / 1e6;
-
-          const entryPrice =
-            orderType === "market" ? oraclePrice : limitPrice || oraclePrice;
-          const positionValue = baseAssetAmount * entryPrice;
-
-          const feeRate = orderType === "market" ? 0.001 : 0;
-          const estimatedFee = positionValue * feeRate;
-
-          const marginRate = 0.05;
-          const requiredMargin = positionValue * marginRate;
-
-          const freeCollateral = user.getFreeCollateral().toNumber() / 1e6;
-          const totalCollateral = user.getTotalCollateral().toNumber() / 1e6;
-
-          const maintenanceMarginRate = 0.03;
-          let liquidationPrice: number | null = null;
-
-          if (direction === "long") {
-            const liqPriceChange =
-              (requiredMargin - positionValue * maintenanceMarginRate) /
-              baseAssetAmount;
-            liquidationPrice = entryPrice - liqPriceChange;
-            if (liquidationPrice < 0) liquidationPrice = null;
-          } else {
-            const liqPriceChange =
-              (requiredMargin - positionValue * maintenanceMarginRate) /
-              baseAssetAmount;
-            liquidationPrice = entryPrice + liqPriceChange;
-          }
-
-          const priceImpact =
-            orderType === "market"
-              ? Math.min(baseAssetAmount * 0.0001, 0.005)
-              : 0;
-
-          return {
-            entryPrice,
-            oraclePrice,
-            positionValue,
-            estimatedFee,
-            feeRate,
-            requiredMargin,
-            freeCollateral,
-            totalCollateral,
-            liquidationPrice,
-            priceImpact,
-            leverage: positionValue / requiredMargin,
-            effectiveLeverage: positionValue / (freeCollateral || 1),
-            canAfford: freeCollateral >= requiredMargin,
-          };
-        } catch (err) {
-          console.error("Error calculating trade details:", err);
-          return null;
-        }
-      },
-      [driftClient, user],
-    ),
+    // Queries (no hardcoded values)
+    getOraclePrice,
+    getPerpMarketInfo,
+    getFreeCollateral,
+    getTotalCollateral,
+    canAffordTrade,
+    getAccount,
+    getPositions,
+    getSpotBalances: getSpotBalancesData,
+    getAllOrders,
+    calculateTradeDetails,
   };
 };
 
