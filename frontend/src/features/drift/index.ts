@@ -1,7 +1,9 @@
 // Drift feature module barrel export
 export * from "./types";
-export * from "./constants";
 export { useDrift } from "./hooks/useDrift";
+export { useDriftAdapter } from "./hooks/useDriftAdapter";
+export { DriftAdapter } from "./DriftAdapter";
+export { DriftProvider, useDriftContext } from "./DriftContext";
 
 // Adapter re-exports for direct use
 export { explorerUrl, bnToUsd, bnToBase, bnToPrice } from "./adapter/utils";
