@@ -4,11 +4,16 @@ import { useQuery } from "@tanstack/react-query";
 import { API_BASE_URL } from "@/config/env";
 
 export interface PerpFundingMetadata {
-  slot?: number;
-  rawFundingRate?: string;
-  oraclePriceTwap?: number;
-  premium?: string;
-  coin?: string;
+  contractIndex: number;
+  baseCurrency: string;
+  quoteCurrency: string;
+  openInterest: string; // JSON returns this as a string
+  indexPrice: string;
+  nextFundingRate: string;
+  nextFundingRateTimestamp: string;
+  high24h: string;
+  low24h: string;
+  volume24h: string;
 }
 
 export interface FundingProjections {
@@ -22,26 +27,29 @@ export interface FundingProjections {
   apr: number;
 }
 
+// Updated to match the main object in your JSON
 export interface PerpFundingRate {
   protocol: string;
   symbol: string;
-  price: number | null;
-  hourlyRate: number;
+  price: number;
+  imageUrl: string; // New field
+  fundingRate: number; // Replaces 'hourlyRate'
+  maxleverage: number; // New field
   projections: FundingProjections;
   timestamp: number;
-  metadata?: PerpFundingMetadata;
+  metadata: PerpFundingMetadata;
 }
 
+// Updated to match the root response structure
 export interface FundingRateResponse {
   success: boolean;
   data: PerpFundingRate[];
-  timestamp: number;
-  count: number;
 }
 
 async function fetchFundingRates(
   protocol: string,
 ): Promise<FundingRateResponse> {
+  // Ensure we are hitting the correct endpoint for the new data structure
   const response = await fetch(
     `${API_BASE_URL}/api/${protocol}/funding-rates/`,
   );
@@ -67,13 +75,13 @@ export function useFundingRates(protocol: "drift" | "hyperliquid") {
     queryFn: () => fetchFundingRates(protocol),
     staleTime: 60 * 1000, // 1 minute
     gcTime: 5 * 60 * 1000, // 5 minutes
-    refetchInterval: 60 * 1000, // Auto-refetch every minute
+    refetchInterval: 1 * 60 * 1000, // Auto-refetch every minute
     refetchOnWindowFocus: false,
-    enabled: !!protocol, // Only fetch if protocol is provided
+    enabled: !!protocol,
   });
 }
 
-// Optional: Hook to fetch all protocols
+// Hook to fetch all protocols and aggregate them
 export function useAllFundingRates() {
   const drift = useFundingRates("drift");
   const hyperliquid = useFundingRates("hyperliquid");
@@ -83,6 +91,7 @@ export function useAllFundingRates() {
     hyperliquid,
     isLoading: drift.isLoading || hyperliquid.isLoading,
     isError: drift.isError || hyperliquid.isError,
+    // Safely aggregate the data arrays
     allData: [...(drift.data?.data || []), ...(hyperliquid.data?.data || [])],
   };
 }

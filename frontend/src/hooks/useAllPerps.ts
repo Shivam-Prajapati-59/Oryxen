@@ -26,6 +26,7 @@ interface PerpRawData {
   symbol: string;
   imageUrl: string;
   maxleverage: number;
+  fundingRate: number;
   // Define the metadata object
   metadata: {
     contractIndex: number;

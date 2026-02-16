@@ -1,14 +1,14 @@
 "use client";
 import { BadgeCheck, ChevronDown } from "lucide-react";
 import { usePriceFeed } from "@/hooks/usePriceFeed";
-import { PerpBasicInfo } from "@/hooks/useAllPerps";
+import { PerpFundingRate } from "@/hooks/useFundingRates";
 import Image from "next/image";
 import { useState, useEffect } from "react";
 
 interface TradingCardHeaderProps {
     isOpen: boolean;
     setIsOpen: (open: boolean) => void;
-    selectedMarket: PerpBasicInfo;
+    selectedMarket: PerpFundingRate;
 }
 
 const TradingCardHeader = ({ isOpen, setIsOpen, selectedMarket }: TradingCardHeaderProps) => {
@@ -116,20 +116,20 @@ const TradingCardHeader = ({ isOpen, setIsOpen, selectedMarket }: TradingCardHea
                 {/* ROW 2: FUNDING */}
                 <div className="flex lg:flex-col justify-center items-center px-4 py-2 border-b dark:border-white/10 border-black/20 lg:border-l gap-2 lg:border-b-0">
                     <p className="text-sm text-muted-foreground font-noto">
-                        OI-Weighted Funding (1hr)
+                        Funding (1hr)
                     </p>
-                    <h3 className="text-sm font-medium text-muted-foreground font-ibm">
-                        -
+                    <h3 className={`text-sm font-medium font-ibm ${selectedMarket.fundingRate > 0 ? "text-emerald-500" : "text-red-500"}`}>
+                        {formatFunding(selectedMarket.fundingRate)}
                     </h3>
                 </div>
 
                 {/* ROW 3: TOTAL OI */}
                 <div className="flex lg:flex-col justify-center items-center px-4 py-2 lg:border-l dark:border-white/10 border-black/20 gap-2">
                     <p className="text-sm text-muted-foreground font-noto">
-                        Total OI Contracts
+                        Total OI
                     </p>
                     <h3 className="text-sm font-medium text-muted-foreground font-ibm">
-                        -
+                        {formatOI(parseFloat(selectedMarket.metadata?.openInterest || "0"))}
                     </h3>
                 </div>
 
