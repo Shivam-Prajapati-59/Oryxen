@@ -1,0 +1,12 @@
+[package]
+name = "gmt"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+gmsol-sdk = { version = "0.8", features = ["client"] }
+anchor-lang = "0.31.1"
+bytemuck = { version = "1.19.0", features = ["min_const_generics", "derive"] }
+tokio = { version = "1.32", features = ["full"] }
+dotenv = "0.15"
+anyhow = "1.0"

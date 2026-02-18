@@ -35,7 +35,11 @@ const DemoPacifica = () => {
         orderError,
         lastOrderResult,
         lastBindResult,
+        isClaiming,
+        claimError,
+        lastClaimResult,
         bindAgentWallet,
+        claimWhitelist,
         placeMarketOrder,
         isReady,
         isAgentBound,
@@ -44,6 +48,10 @@ const DemoPacifica = () => {
     // ─── Handlers ────────────────────────────────────────────────────────
     const handleBindAgent = async () => {
         await bindAgentWallet();
+    };
+
+    const handleClaimWhitelist = async () => {
+        await claimWhitelist();
     };
 
     const handlePlaceOrder = async () => {
@@ -108,11 +116,58 @@ const DemoPacifica = () => {
                 )}
             </div>
 
-            {/* ── Step 1: Bind Agent Wallet ───────────────────────────────── */}
+            {/* ── Step 1: Whitelist Wallet ────────────────────────────────── */}
+            <div className="rounded-lg border p-4 space-y-3">
+                <h3 className="flex items-center gap-2 text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+                    <ShieldCheck className="h-4 w-4" />
+                    Step 1 – Whitelist Wallet
+                </h3>
+                <p className="text-xs text-muted-foreground">
+                    Whitelist your wallet with Pacifica to enable trading. This is a one-time
+                    step per wallet.
+                </p>
+
+                {lastClaimResult ? (
+                    <div className="flex items-center gap-2 rounded-md bg-green-500/10 p-3 text-green-600 dark:text-green-400">
+                        <CheckCircle2 className="h-4 w-4 shrink-0" />
+                        <div className="space-y-0.5 overflow-hidden">
+                            <p className="text-sm font-medium">Wallet whitelisted!</p>
+                        </div>
+                    </div>
+                ) : (
+                    <Button
+                        onClick={handleClaimWhitelist}
+                        disabled={isClaiming || !isReady}
+                        className="w-full"
+                        variant="outline"
+                    >
+                        {isClaiming ? (
+                            <>
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                Whitelisting Wallet...
+                            </>
+                        ) : (
+                            <>
+                                <ShieldCheck className="mr-2 h-4 w-4" />
+                                Whitelist Wallet
+                            </>
+                        )}
+                    </Button>
+                )}
+
+                {claimError && (
+                    <div className="flex items-start gap-2 rounded-md bg-destructive/10 p-3 text-destructive text-sm">
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                        {claimError}
+                    </div>
+                )}
+            </div>
+
+            {/* ── Step 2: Bind Agent Wallet ───────────────────────────────── */}
             <div className="rounded-lg border p-4 space-y-3">
                 <h3 className="flex items-center gap-2 text-sm font-semibold text-muted-foreground uppercase tracking-wide">
                     <KeyRound className="h-4 w-4" />
-                    Step 1 – Bind Agent Wallet
+                    Step 2 – Bind Agent Wallet
                 </h3>
                 <p className="text-xs text-muted-foreground">
                     Generate an agent keypair and bind it to your account. The agent signs
@@ -132,7 +187,7 @@ const DemoPacifica = () => {
                 ) : (
                     <Button
                         onClick={handleBindAgent}
-                        disabled={isBindingAgent || !isReady}
+                        disabled={isBindingAgent || !isReady || !lastClaimResult}
                         className="w-full"
                         variant="outline"
                     >
@@ -150,6 +205,12 @@ const DemoPacifica = () => {
                     </Button>
                 )}
 
+                {!lastClaimResult && !isAgentBound && (
+                    <p className="text-center text-xs text-muted-foreground">
+                        ⚠ Whitelist wallet first (Step 1)
+                    </p>
+                )}
+
                 {bindError && (
                     <div className="flex items-start gap-2 rounded-md bg-destructive/10 p-3 text-destructive text-sm">
                         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -164,11 +225,11 @@ const DemoPacifica = () => {
                 )}
             </div>
 
-            {/* ── Step 2: Place Market Order ──────────────────────────────── */}
+            {/* ── Step 3: Place Market Order ──────────────────────────────── */}
             <div className="rounded-lg border p-4 space-y-4">
                 <h3 className="flex items-center gap-2 text-sm font-semibold text-muted-foreground uppercase tracking-wide">
                     <TrendingUp className="h-4 w-4" />
-                    Step 2 – Place Market Order
+                    Step 3 – Place Market Order
                 </h3>
 
                 {/* Symbol select */}
@@ -266,7 +327,7 @@ const DemoPacifica = () => {
 
                 {!isAgentBound && (
                     <p className="text-center text-xs text-muted-foreground">
-                        ⚠ Bind an agent wallet first (Step 1)
+                        ⚠ Bind an agent wallet first (Step 2)
                     </p>
                 )}
 

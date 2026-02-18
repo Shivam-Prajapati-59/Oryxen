@@ -34,6 +34,9 @@ interface PacificaState {
   orderError: string | null;
   lastOrderResult: any | null;
   lastBindResult: any | null;
+  isClaiming: boolean;
+  claimError: string | null;
+  lastClaimResult: any | null;
 }
 
 /**
@@ -59,6 +62,9 @@ export function usePacifica() {
     orderError: null,
     lastOrderResult: null,
     lastBindResult: null,
+    isClaiming: false,
+    claimError: null,
+    lastClaimResult: null,
   });
 
   const agentKeypairRef = useRef<Keypair | null>(null);
@@ -151,6 +157,94 @@ export function usePacifica() {
         ...s,
         isBindingAgent: false,
         bindError: err.message || "Failed to bind agent wallet",
+      }));
+    }
+  }, [solanaWallet, signMessage]);
+
+  // ─── 2. CLAIM WHITELIST ─────────────────────────────────────────────
+  const claimWhitelist = useCallback(async () => {
+    if (!solanaWallet) {
+      setState((s) => ({ ...s, claimError: "No Solana wallet connected" }));
+      return;
+    }
+
+    setState((s) => ({
+      ...s,
+      isClaiming: true,
+      claimError: null,
+      lastClaimResult: null,
+    }));
+
+    try {
+      const masterPublicKey = solanaWallet.address;
+      const REFERRAL_CODE = "Pacifica";
+      const timestamp = Date.now();
+
+      const header: SignatureHeader = {
+        timestamp,
+        expiry_window: 300000, // 5 minutes (matches user example)
+        type: "claim_access_code",
+      };
+
+      const payload = {
+        code: REFERRAL_CODE,
+      };
+
+      const messageString = prepareMessage(header, payload);
+      const messageBytes = new TextEncoder().encode(messageString);
+
+      const signResult = await signMessage({
+        message: messageBytes,
+        wallet: solanaWallet,
+      });
+
+      const signatureBase58 = encodeSignature(
+        new Uint8Array(signResult.signature),
+      );
+
+      const requestBody = {
+        account: masterPublicKey,
+        code: REFERRAL_CODE,
+        signature: {
+          type: "raw",
+          value: signatureBase58,
+        },
+        timestamp: header.timestamp,
+        expiry_window: header.expiry_window,
+      };
+
+      const response = await fetch("/api/pacifica/claim", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || `Claim failed: ${response.status}`);
+      }
+
+      // The API returns { success: true, data: { success: true }, ... }
+      // We check for success at the top level or data level
+      if (data.success === false) {
+        throw new Error(data.error || "Claim failed");
+      }
+
+      setState((s) => ({
+        ...s,
+        isClaiming: false,
+        lastClaimResult: data,
+      }));
+
+      console.log("Wallet whitelisted:", data);
+      return data;
+    } catch (err: any) {
+      console.error("Claim whitelist failed:", err);
+      setState((s) => ({
+        ...s,
+        isClaiming: false,
+        claimError: err.message || "Failed to whitelist wallet",
       }));
     }
   }, [solanaWallet, signMessage]);
@@ -258,9 +352,13 @@ export function usePacifica() {
     orderError: state.orderError,
     lastOrderResult: state.lastOrderResult,
     lastBindResult: state.lastBindResult,
+    isClaiming: state.isClaiming,
+    claimError: state.claimError,
+    lastClaimResult: state.lastClaimResult,
 
     // Actions
     bindAgentWallet,
+    claimWhitelist,
     placeMarketOrder,
 
     // Computed
