@@ -1,5 +1,8 @@
 mod market;
 mod order;
+mod position;
+mod wallet;
+mod utils;
 
 use std::env;
 use gmsol_sdk::{
