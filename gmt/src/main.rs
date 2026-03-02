@@ -63,7 +63,7 @@ async fn main() -> gmsol_sdk::Result<()> {
 
     println!("┌─────────────────────────────────────────┐");
     println!("│  Network : {:31}│", network_label);
-    println!("│  Wallet  : {:31}│", &payer.pubkey().to_string()[..31]);
+    println!("│  Wallet  : {:31}│", &payer.pubkey().to_string());
     println!("│  Keypair : {:31}│", keypair_path);
     println!("└─────────────────────────────────────────┘");
 
@@ -117,6 +117,30 @@ async fn main() -> gmsol_sdk::Result<()> {
             position::list_positions(&client, &store).await?;
         }
 
+        // ── GET POSITION DETAILS ────────────────────────────────────────
+        // Usage: get_position <position_address>
+        "get_position" => {
+            if args.len() < 3 {
+                println!("Usage: get_position <position_address>");
+                return Ok(());
+            }
+            let addr = gmsol_sdk::solana_utils::solana_sdk::pubkey::Pubkey::from_str(&args[2])
+                .map_err(|e| gmsol_sdk::Error::custom(format!("Invalid address: {}", e)))?;
+            position::get_position(&client, &addr).await?;
+        }
+
+        // ── GET ORDER DETAILS ───────────────────────────────────────────
+        // Usage: get_order <order_address>
+        "get_order" => {
+            if args.len() < 3 {
+                println!("Usage: get_order <order_address>");
+                return Ok(());
+            }
+            let addr = gmsol_sdk::solana_utils::solana_sdk::pubkey::Pubkey::from_str(&args[2])
+                .map_err(|e| gmsol_sdk::Error::custom(format!("Invalid address: {}", e)))?;
+            position::get_order(&client, &addr).await?;
+        }
+
         // ── OPEN POSITION (MARKET) ──────────────────────────────────────────
         // Usage: open_long <market_name> <collateral_lamports> <size_usd_whole>
         // Example: cargo run open_long "SOL/USD[WSOL-USDC]" 500000000 1000
@@ -138,13 +162,10 @@ async fn main() -> gmsol_sdk::Result<()> {
             order::create_order(&client, &store, &market_token, true, collateral, is_long, size_usd_whole * MARKET_USD_UNIT).await?;
         }
 
-        // ── OPEN POSITION (LIMIT) ───────────────────────────────────────────
-        // Usage: open_limit <market_name> long|short <collateral_lamports> <size_usd_whole> <trigger_price_usd>
-        // Example: cargo run open_limit "SOL/USD[WSOL-USDC]" long 500000000 1000 120
         "open_limit" => {
             if args.len() < 7 {
                 println!("Usage: open_limit <market_name> <long|short> <collateral_lamports> <size_usd_whole> <trigger_price_usd>");
-                println!("  trigger_price_usd: e.g. 120 means trigger when SOL = $120");
+                println!("  trigger_price_usd: whole USD, e.g. 120 for $120");
                 return Ok(());
             }
             let market_name = &args[2];
@@ -154,10 +175,26 @@ async fn main() -> gmsol_sdk::Result<()> {
             let trigger_usd: u128 = args[6].parse().map_err(|e| gmsol_sdk::Error::custom(format!("bad price: {}", e)))?;
 
             let is_long = side.eq_ignore_ascii_case("long");
-            let trigger_price = trigger_usd * SOL_PRICE_UNIT;
             let markets = client.markets(&store).await?;
             let market_token = resolve_market!(market_name, markets)
                 .ok_or_else(|| gmsol_sdk::Error::custom(format!("Market '{}' not found", market_name)))?;
+
+            // Derive price precision from the *base* asset (part before '/').
+            // E.g. "SOL/USD[WSOL-USDC]" → base = "SOL" → 9 decimals → price_unit = 10^21
+            // SDK price unit = 10^(30 - base_token_decimals)
+            let base_asset = market_name.split('/').next().unwrap_or("SOL");
+            let _ = client.market_by_token(&store, &market_token).await?; // validate market exists
+            let token_decimals: u32 = match base_asset.to_uppercase().as_str() {
+                "BTC"                    => 8,
+                "ETH" | "WETH"          => 8,
+                "SOL" | "WSOL"          => 9,
+                "USDC" | "USDT" | "DAI" => 6,
+                "BONK" | "WIF" | "BOME" => 5,
+                _                        => 9, // safe default for Solana-native tokens
+            };
+            let price_unit: u128 = 10u128.pow(30 - token_decimals);
+            let trigger_price = trigger_usd * price_unit;
+            println!("  Base: {} | Decimals: {} → price_unit=10^{}", base_asset, token_decimals, 30 - token_decimals);
 
             order::open_limit_order(&client, &store, &market_token, is_long, true, collateral, size_usd_whole * MARKET_USD_UNIT, trigger_price).await?;
         }
@@ -332,13 +369,29 @@ async fn main() -> gmsol_sdk::Result<()> {
             wallet::setup_wallet(&client, &store, &market_token).await?;
         }
 
-        // ── CREATE LIMIT ORDER (low-level, for testing) ─────────────────────
+        // ── CREATE LIMIT ORDER (devnet-only testing shortcut) ───────────────
         "create_limit_order" => {
             if args.len() < 3 {
                 println!("Usage: create_limit_order <market_name>");
                 return Ok(());
             }
             let market_name = &args[2];
+
+            // Safety guard: require explicit confirmation on mainnet
+            if network.contains("mainnet") {
+                eprintln!("⚠️  WARNING: You are about to place a REAL ORDER on MAINNET!");
+                eprintln!("   Market : {}", market_name);
+                eprintln!("   Size   : $1000 | Collateral: 0.5 SOL | Trigger: $50");
+                eprint!("   Type YES to confirm, or anything else to abort: ");
+                let mut input = String::new();
+                std::io::stdin().read_line(&mut input)
+                    .map_err(|e| gmsol_sdk::Error::custom(format!("stdin error: {}", e)))?;
+                if input.trim() != "YES" {
+                    eprintln!("Aborted.");
+                    return Ok(());
+                }
+            }
+
             let markets = client.markets(&store).await?;
             let market_token = resolve_market!(market_name, markets)
                 .ok_or_else(|| gmsol_sdk::Error::custom(format!("Market '{}' not found", market_name)))?;

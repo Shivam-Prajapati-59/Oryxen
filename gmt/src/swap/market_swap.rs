@@ -5,6 +5,8 @@ use gmsol_sdk::{
     Client, Result,
 };
 
+use anchor_spl::associated_token::get_associated_token_address;
+
 /// Market Swap — swap tokens at current market price.
 pub async fn market_swap(
     client: &Client<&Keypair>,
@@ -20,7 +22,7 @@ pub async fn market_swap(
         swap_in_token, swap_in_amount, is_output_token_long
     );
 
-    let swap_in_ata = anchor_spl::associated_token::get_associated_token_address(&client.payer(), swap_in_token);
+    let swap_in_ata = get_associated_token_address(&client.payer(), swap_in_token);
 
     let mut builder = client.market_swap(
         store, market_token, is_output_token_long,
@@ -50,7 +52,7 @@ pub async fn limit_swap(
         swap_in_token, swap_in_amount, min_output_amount
     );
 
-    let swap_in_ata = anchor_spl::associated_token::get_associated_token_address(&client.payer(), swap_in_token);
+    let swap_in_ata = get_associated_token_address(&client.payer(), swap_in_token);
 
     let mut builder = client.limit_swap(
         store, market_token, is_output_token_long, min_output_amount,

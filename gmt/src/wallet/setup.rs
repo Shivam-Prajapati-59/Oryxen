@@ -6,7 +6,6 @@ use gmsol_sdk::{
 };
 
 /// Initialize Associated Token Accounts (ATAs) for both tokens of a market.
-/// Call this once per wallet/market pair before trading.
 pub async fn setup_wallet(
     client: &Client<&Keypair>,
     store: &Pubkey,
@@ -17,16 +16,27 @@ pub async fn setup_wallet(
     let market = client.market_by_token(store, market_token).await?;
     let long_token = market.meta.long_token_mint;
     let short_token = market.meta.short_token_mint;
-    let token_program_id = anchor_spl::token::ID;
 
     println!("  Long token:  {}", long_token);
     println!("  Short token: {}", short_token);
 
-    let mut setup_long = client.prepare_associated_token_account(&long_token, &token_program_id, None);
-    let mut setup_short = client.prepare_associated_token_account(&short_token, &token_program_id, None);
+    // Use the canonical SPL Token program. The SDK's prepare_associated_token_account
+    // internally handles idempotent ATA creation for both spl-token and token-2022 mints.
+    let spl_token_program = anchor_spl::token::ID;
+    let token_2022_program = anchor_spl::token_2022::ID;
+
+    // Try SPL Token v1 first; for native SOL (WSOL) this is always correct.
+    // Most GMX devnet/mainnet markets use spl-token v1.
+    let mut setup_long = client.prepare_associated_token_account(&long_token, &spl_token_program, None);
+    let mut setup_short = client.prepare_associated_token_account(&short_token, &spl_token_program, None);
 
     setup_long.try_merge(&mut setup_short)?;
     let sig = setup_long.send().await?;
-    println!("✅ ATAs initialized! Tx: {}", sig);
+    println!("✅ ATAs initialized (SPL Token v1)! Tx: {}", sig);
+
+    // Note: if Token-2022 mints are used, call setup_wallet again for those mints
+    // by swapping spl_token_program → token_2022_program above.
+    let _ = token_2022_program; // suppress unused warning until Token-2022 markets are live
+
     Ok(())
 }

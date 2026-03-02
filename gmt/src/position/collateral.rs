@@ -5,6 +5,8 @@ use gmsol_sdk::{
     Client, Result,
 };
 
+use anchor_spl::associated_token::get_associated_token_address;
+
 /// Deposit collateral — `market_increase` with zero size, just adds collateral.
 pub async fn deposit_collateral(
     client: &Client<&Keypair>,
@@ -15,13 +17,13 @@ pub async fn deposit_collateral(
     collateral_amount: u64,
 ) -> Result<()> {
     println!(
-        "Depositing {} lamports collateral into {} position",
+        "Depositing {} units collateral into {} position",
         collateral_amount, if is_long { "LONG" } else { "SHORT" }
     );
 
     let market = client.market_by_token(store, market_token).await?;
     let collateral_mint = if is_collateral_token_long { market.meta.long_token_mint } else { market.meta.short_token_mint };
-    let collateral_ata = anchor_spl::associated_token::get_associated_token_address(&client.payer(), &collateral_mint);
+    let collateral_ata = get_associated_token_address(&client.payer(), &collateral_mint);
 
     let mut builder = client.market_increase(store, market_token, is_collateral_token_long, collateral_amount, is_long, 0);
     builder.initial_collateral_token(&collateral_mint, Some(&collateral_ata));
@@ -42,13 +44,13 @@ pub async fn withdraw_collateral(
     collateral_withdrawal_amount: u64,
 ) -> Result<()> {
     println!(
-        "Withdrawing {} lamports collateral from {} position",
+        "Withdrawing {} units collateral from {} position",
         collateral_withdrawal_amount, if is_long { "LONG" } else { "SHORT" }
     );
 
     let market = client.market_by_token(store, market_token).await?;
     let collateral_mint = if is_collateral_token_long { market.meta.long_token_mint } else { market.meta.short_token_mint };
-    let collateral_ata = anchor_spl::associated_token::get_associated_token_address(&client.payer(), &collateral_mint);
+    let collateral_ata = get_associated_token_address(&client.payer(), &collateral_mint);
 
     let mut builder = client.market_decrease(store, market_token, is_collateral_token_long, collateral_withdrawal_amount, is_long, 0);
     builder.initial_collateral_token(&collateral_mint, Some(&collateral_ata));

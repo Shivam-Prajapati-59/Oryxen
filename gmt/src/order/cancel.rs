@@ -7,9 +7,8 @@ use gmsol_sdk::{
 
 /// Cancel an open order (limit, TP, SL) by its address.
 ///
-/// This calls `close_order` under the hood which is the protocol's cancel mechanism.
-/// Note: The order account must still be live on-chain. On Devnet, keepers process
-/// orders extremely fast so this may return NotFound if the order was already executed.
+/// Note: The order account must still be live on-chain. On Devnet keepers
+/// process orders very fast, so this may return NotFound if already executed.
 pub async fn cancel_order(
     client: &Client<&Keypair>,
     order_address: &Pubkey,
@@ -25,7 +24,11 @@ pub async fn cancel_order(
         .await
         .map_err(|e| { eprintln!("❌ Failed to build cancel tx (order may already be gone): {:?}", e); e })?;
 
-    let sig = txn_builder.send().await?;
+    let sig = txn_builder
+        .send()
+        .await
+        .map_err(|e| { eprintln!("❌ Failed to send cancel transaction: {:?}", e); e })?;
+
     println!("✅ Order cancelled! Signature: {}", sig);
     Ok(())
 }

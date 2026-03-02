@@ -7,8 +7,12 @@ use gmsol_sdk::{
     Client, Result,
 };
 
+use anchor_spl::associated_token::get_associated_token_address;
+
 const NATIVE_SOL_MINT: Pubkey = anchor_spl::token::spl_token::native_mint::ID;
 
+/// Wraps native SOL → WSOL atomically and sends the order, only if amount > 0.
+/// Also creates the WSOL ATA idempotently so sync_native always has a valid account.
 async fn build_order_with_sol_wrap(
     client: &Client<&Keypair>,
     mut builder: gmsol_sdk::ops::exchange::order::CreateOrderBuilder<'_, &Keypair>,
@@ -18,8 +22,19 @@ async fn build_order_with_sol_wrap(
 ) -> Result<(String, Pubkey)> {
     let user = client.payer();
     let mut wrap_instructions: Vec<Instruction> = Vec::new();
-    if collateral_mint == &NATIVE_SOL_MINT {
+
+    if collateral_mint == &NATIVE_SOL_MINT && collateral_amount > 0 {
         println!("Auto-wrapping native SOL → WSOL...");
+
+        // Idempotently create the WSOL ATA before transferring into it
+        wrap_instructions.push(
+            anchor_spl::associated_token::spl_associated_token_account::instruction::create_associated_token_account_idempotent(
+                &user,
+                &user,
+                collateral_mint,
+                &anchor_spl::token::ID,
+            )
+        );
         wrap_instructions.push(system_instruction::transfer(&user, collateral_ata, collateral_amount));
         wrap_instructions.push(
             anchor_spl::token::spl_token::instruction::sync_native(&anchor_spl::token::ID, collateral_ata)
@@ -56,7 +71,7 @@ pub async fn open_limit_order(
 
     let market = client.market_by_token(store, market_token).await?;
     let collateral_mint = if is_collateral_token_long { market.meta.long_token_mint } else { market.meta.short_token_mint };
-    let collateral_ata = anchor_spl::associated_token::get_associated_token_address(&client.payer(), &collateral_mint);
+    let collateral_ata = get_associated_token_address(&client.payer(), &collateral_mint);
 
     let builder = client.limit_increase(
         store, market_token, is_long, size_delta_usd, trigger_price,
@@ -86,7 +101,7 @@ pub async fn close_limit_order(
 
     let market = client.market_by_token(store, market_token).await?;
     let collateral_mint = if is_collateral_token_long { market.meta.long_token_mint } else { market.meta.short_token_mint };
-    let collateral_ata = anchor_spl::associated_token::get_associated_token_address(&client.payer(), &collateral_mint);
+    let collateral_ata = get_associated_token_address(&client.payer(), &collateral_mint);
 
     let builder = client.limit_decrease(
         store, market_token, is_long, size_delta_usd, trigger_price,
