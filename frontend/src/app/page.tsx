@@ -4,8 +4,8 @@ import Container from "@/components/common/Container";
 import DemoDrift from "@/components/demo/DemoDrift";
 import DemoFlash from "@/components/demo/DemoFlash";
 import DemoPacifica from "@/components/demo/DemoPacifica";
-import DemoJupiter from "@/components/demo/DemoJupiter";
 import TradingCard from "@/components/TradingCard/TradingCard";
+import DemoGmt from "@/components/demo/DemoGmt";
 
 
 export default function Home() {
@@ -17,7 +17,7 @@ export default function Home() {
       {/* <DemoPacifica /> */}
       {/* <DemoDrift /> */}
       {/* <DemoFlash /> */}
-      {/* <DemoJupiter /> */}
+      <DemoGmt />
     </Container>
   );
 }

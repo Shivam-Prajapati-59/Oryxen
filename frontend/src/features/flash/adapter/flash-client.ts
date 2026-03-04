@@ -58,7 +58,7 @@ export const createFlashClient = (
   const poolConfig = PoolConfig.fromIdsByName(config.poolName, config.cluster);
 
   const client = new PerpetualsClient(
-    provider,
+    provider as any,
     poolConfig.programId,
     poolConfig.perpComposibilityProgramId,
     poolConfig.fbNftRewardProgramId,
