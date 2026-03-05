@@ -1,5 +1,3 @@
-// frontend/src/features/drift/hooks/useDriftAdapter.ts
-
 "use client";
 
 import { useEffect, useRef } from "react";
