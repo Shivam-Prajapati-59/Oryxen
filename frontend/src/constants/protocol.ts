@@ -1,1 +1,1 @@
-export const PROTOCOLS = ["Hyperliquid", "Drift", "Raydium"];
+export const PROTOCOLS = ["Drift", "GM Sol"];

@@ -7,13 +7,14 @@ import {
 import {
   NATIVE_MINT,
   getAssociatedTokenAddressSync,
-  createAssociatedTokenAccountInstruction,
+  createAssociatedTokenAccountIdempotentInstruction,
   createSyncNativeInstruction,
   createCloseAccountInstruction,
 } from "@solana/spl-token";
 
 /**
- * Generates instructions to Wrap native SOL into wSOL.
+ * Generates instructions to wrap native SOL into WSOL.
+ * Creates the ATA if it doesn't exist, transfers SOL, and syncs the native balance.
  */
 export const getWrapSolInstructions = async (
   connection: Connection,
@@ -21,25 +22,18 @@ export const getWrapSolInstructions = async (
   amountLamports: number,
 ): Promise<TransactionInstruction[]> => {
   const instructions: TransactionInstruction[] = [];
-
-  // 1. Get the expected wSOL Associated Token Account (ATA) address
   const wsolAta = getAssociatedTokenAddressSync(NATIVE_MINT, owner);
 
-  // 2. Check if the user already has a wSOL account initialized
-  const ataInfo = await connection.getAccountInfo(wsolAta);
-  if (!ataInfo) {
-    // If not, add the instruction to create it
-    instructions.push(
-      createAssociatedTokenAccountInstruction(
-        owner, // Payer
-        wsolAta, // ATA to create
-        owner, // Owner of the ATA
-        NATIVE_MINT, // Mint (wSOL)
-      ),
-    );
-  }
+  // Use idempotent creation so it safely succeeds even if the account already exists
+  instructions.push(
+    createAssociatedTokenAccountIdempotentInstruction(
+      owner,
+      wsolAta,
+      owner,
+      NATIVE_MINT,
+    ),
+  );
 
-  // 3. Transfer native SOL from the user's main wallet to the wSOL ATA
   instructions.push(
     SystemProgram.transfer({
       fromPubkey: owner,
@@ -48,28 +42,25 @@ export const getWrapSolInstructions = async (
     }),
   );
 
-  // 4. Sync Native: This tells the Token Program to update the wSOL balance
-  // to match the native SOL that was just transferred into the account.
   instructions.push(createSyncNativeInstruction(wsolAta));
 
   return instructions;
 };
 
 /**
- * Generates the instruction to Unwrap wSOL back to native SOL.
+ * Generates the instruction to unwrap WSOL back to native SOL.
+ * Closing the WSOL account automatically transfers the underlying SOL back to the owner.
  */
 export const getUnwrapSolInstructions = (
   owner: PublicKey,
 ): TransactionInstruction[] => {
   const wsolAta = getAssociatedTokenAddressSync(NATIVE_MINT, owner);
 
-  // Closing the wSOL account automatically sends all the underlying SOL
-  // (including the rent exemption SOL) back to the destination wallet.
   return [
     createCloseAccountInstruction(
       wsolAta, // Account to close
       owner, // Destination for the SOL
-      owner, // Authority of the account being closed
+      owner, // Authority
     ),
   ];
 };
