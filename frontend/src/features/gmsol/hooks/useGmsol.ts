@@ -132,22 +132,83 @@ export const useGmsol = () => {
       if (!privyWallet) throw new Error("Wallet not connected");
 
       const adapter = createPrivyWalletAdapter(privyWallet, GMSOL_CHAIN_PREFIX);
+
+      // Deserialize transactions — keep the blockhash the SDK embedded
+      const transactions = serializedTxns.map((txnBytes) =>
+        VersionedTransaction.deserialize(txnBytes),
+      );
+
+      // Fetch a fresh blockhash + lastValidBlockHeight for confirmation.
+      // We use the same blockhash for the transaction so everything is consistent.
+      const { blockhash, lastValidBlockHeight } =
+        await connection.getLatestBlockhash("confirmed");
+
+      // Stamp every transaction with the fresh blockhash so confirmation matches
+      for (const tx of transactions) {
+        tx.message.recentBlockhash = blockhash;
+      }
+
+      // Batch-sign all at once — user only clicks "Approve" once
+      const signedTransactions = await adapter.signAllTransactions(
+        transactions,
+      );
+
+      // Send and confirm sequentially
       const signatures: string[] = [];
 
-      for (const txnBytes of serializedTxns) {
-        const tx = VersionedTransaction.deserialize(txnBytes);
-        const signed = await adapter.signTransaction(tx);
-        const sig = await connection.sendRawTransaction(signed.serialize(), {
-          skipPreflight: true,
-        });
-        signatures.push(sig);
+      try {
+        for (const signed of signedTransactions) {
+          const sig = await connection.sendRawTransaction(signed.serialize(), {
+            skipPreflight: false,
+            preflightCommitment: "processed",
+          });
+
+          const confirmation = await connection.confirmTransaction(
+            { signature: sig, blockhash, lastValidBlockHeight },
+            "processed",
+          );
+
+          // Check for on-chain errors (confirmTransaction resolves even for
+          // failed txns — the error is in value.err, not thrown)
+          if (confirmation.value.err) {
+            throw new Error(
+              `Transaction ${sig} failed on-chain: ${JSON.stringify(
+                confirmation.value.err,
+              )}`,
+            );
+          }
+
+          signatures.push(sig);
+        }
+      } catch (err) {
+        console.error("signAndSendTransactions failed:", err);
+
+        // Extract a readable message from any error shape
+        let errMsg: string;
+        if (err instanceof Error) {
+          // Solana SendTransactionError may have .logs
+          const logs = (err as any).logs as string[] | undefined;
+          errMsg = logs?.length
+            ? `${err.message}\nLogs:\n${logs.join("\n")}`
+            : err.message;
+        } else if (typeof err === "string") {
+          errMsg = err;
+        } else {
+          errMsg = JSON.stringify(err, null, 2) || String(err);
+        }
+
+        const enrichedError = new Error(
+          `Transaction failed after ${signatures.length} succeeded: ${errMsg}`,
+        );
+        (enrichedError as any).partialSignatures = signatures;
+        (enrichedError as any).cause = err;
+        throw enrichedError;
       }
 
       return signatures;
     },
     [privyWallet, connection],
   );
-
   // ══════════════════════════════════════════════════════════════════
   //  ORDER OPERATIONS — uses SDK create_orders / create_orders_builder
   // ══════════════════════════════════════════════════════════════════
@@ -185,7 +246,6 @@ export const useGmsol = () => {
           collateral_or_swap_out_token: formData.collateralToken,
           compute_unit_price_micro_lamports: 2_000_000,
           hints,
-          transaction_group: {} as any,
         };
 
         // Order params — same as demo
@@ -271,7 +331,7 @@ export const useGmsol = () => {
   );
 
   // ══════════════════════════════════════════════════════════════════
-  //  CLOSE ORDER — uses SDK close_orders (same Map pattern as demo)
+  //  CLOSE ORDER — uses SDK close_orders
   // ══════════════════════════════════════════════════════════════════
 
   const submitCloseOrder = useCallback(
@@ -588,11 +648,11 @@ export const useGmsol = () => {
   );
 
   // ══════════════════════════════════════════════════════════════════
-  //  CLOSE POSITION — creates a MarketDecrease order for full position size
+  //  CLOSE POSITION — creates a MarketDecrease order (full or partial)
   // ══════════════════════════════════════════════════════════════════
 
   const submitClosePosition = useCallback(
-    async (positionInfo: PositionInfo) => {
+    async (positionInfo: PositionInfo, closeSizeUsd?: string) => {
       if (!privyWallet) {
         setError("Please connect a Solana wallet first.");
         return;
@@ -615,6 +675,48 @@ export const useGmsol = () => {
             "Market not found for position. Refresh markets first.",
           );
 
+        const isLong = positionInfo.side === "long";
+
+        // Use the position's stored collateral token directly — it's the
+        // authoritative source. Fall back to market-derived token only if the
+        // position field is empty (should not happen in practice).
+        const collateralToken =
+          positionInfo.collateralToken &&
+          positionInfo.collateralToken !== "" &&
+          positionInfo.collateralToken !== "11111111111111111111111111111111"
+            ? positionInfo.collateralToken
+            : isLong
+            ? market.longToken
+            : market.shortToken;
+
+        // Verify the collateral matches one of the market tokens — the SDK
+        // uses this comparison to derive is_collateral_long for the position PDA.
+        const isCollateralLong = collateralToken === market.longToken;
+        const isCollateralShort = collateralToken === market.shortToken;
+        if (!isCollateralLong && !isCollateralShort) {
+          throw new Error(
+            `Position collateral (${collateralToken}) does not match ` +
+              `market long (${market.longToken}) or short (${market.shortToken}). ` +
+              `Cannot derive correct position PDA.`,
+          );
+        }
+
+        console.log("[submitClosePosition] params:", {
+          positionAddress: positionInfo.address,
+          market: market.name,
+          marketToken: positionInfo.marketToken,
+          isLong,
+          collateralToken,
+          isCollateralLong,
+          positionCollateral: positionInfo.collateralToken,
+          longToken: market.longToken,
+          shortToken: market.shortToken,
+          sizeInUsd: positionInfo.sizeInUsd,
+          closeSizeUsd: closeSizeUsd || positionInfo.sizeInUsd,
+          payer,
+          rawKind: positionInfo.rawAccount?.kind,
+        });
+
         // Hints map
         const hints = new Map<string, CreateOrderHint>([
           [
@@ -626,25 +728,48 @@ export const useGmsol = () => {
           ],
         ]);
 
-        // Create MarketDecrease order for full position size
+        // Create MarketDecrease order — full or partial close
         const orderParams = {
           market_token: positionInfo.marketToken,
-          is_long: positionInfo.side === "long",
-          size: BigInt(positionInfo.sizeInUsd),
-          amount: BigInt(0), // receive all collateral back
+          is_long: isLong,
+          size: BigInt(closeSizeUsd || positionInfo.sizeInUsd),
+          amount: BigInt(0), // protocol returns proportional collateral
         };
 
-        const serializedTxns = await buildCreateOrder(
-          "MarketDecrease",
-          [orderParams],
-          {
-            recent_blockhash: blockhash,
-            payer,
-            collateral_or_swap_out_token: positionInfo.collateralToken,
-            compute_unit_price_micro_lamports: 2_000_000,
-            hints,
-            transaction_group: {} as any,
-          },
+        let serializedTxns: Uint8Array[];
+        try {
+          serializedTxns = await buildCreateOrder(
+            "MarketDecrease",
+            [orderParams],
+            {
+              recent_blockhash: blockhash,
+              payer,
+              collateral_or_swap_out_token: collateralToken,
+              compute_unit_price_micro_lamports: 2_000_000,
+              hints,
+              // For decrease orders, receive_token tells the SDK which token
+              // account to use for the output (same as collateral for simple closes)
+              receive_token: collateralToken,
+            },
+          );
+        } catch (sdkErr) {
+          console.error(
+            "[submitClosePosition] SDK buildCreateOrder failed:",
+            sdkErr,
+          );
+          throw new Error(
+            `SDK failed to build MarketDecrease transaction: ${
+              sdkErr instanceof Error
+                ? sdkErr.message
+                : typeof sdkErr === "string"
+                ? sdkErr
+                : JSON.stringify(sdkErr)
+            }`,
+          );
+        }
+
+        console.log(
+          `[submitClosePosition] SDK built ${serializedTxns.length} transaction(s)`,
         );
 
         const sigs = await signAndSendTransactions(serializedTxns);
@@ -653,7 +778,7 @@ export const useGmsol = () => {
 
         await fetchPositionsAndOrders();
       } catch (err: unknown) {
-        console.error(err);
+        console.error("[submitClosePosition] error:", err);
         setError(
           err instanceof Error ? err.message : "Failed to close position",
         );

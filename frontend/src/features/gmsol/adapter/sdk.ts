@@ -7,7 +7,10 @@ let _sdk: typeof import("@gmsol-labs/gmsol-sdk") | null = null;
 
 export async function getSDK() {
   if (_sdk) return _sdk;
-  _sdk = await import("@gmsol-labs/gmsol-sdk");
+  const sdk = await import("@gmsol-labs/gmsol-sdk");
+  // Enable readable WASM panic messages (must be called once before any SDK use)
+  sdk.solana_program_init();
+  _sdk = sdk;
   return _sdk;
 }
 

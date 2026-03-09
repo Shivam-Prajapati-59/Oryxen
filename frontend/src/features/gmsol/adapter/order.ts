@@ -155,8 +155,14 @@ export async function buildUpdateOrders(
   args: UpdateOrderArgs,
 ): Promise<Uint8Array[]> {
   const sdk = await getSDK();
-  const txGroup = sdk.update_orders(args);
-  return flattenTransactionGroup(txGroup.serialize());
+  try {
+    const txGroup = sdk.update_orders(args);
+    return flattenTransactionGroup(txGroup.serialize());
+  } catch (error) {
+    // Intercept WASM panics or formatting errors here
+    console.error("SDK Update Order Error:", error);
+    throw new Error("Failed to construct update order transaction payload.");
+  }
 }
 
 // ─── Re-exports ─────────────────────────────────────────────────────

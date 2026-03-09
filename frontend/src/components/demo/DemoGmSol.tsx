@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { useGmsol } from "@/features/gmsol/hooks/useGmsol";
 import type {
     CreateOrderFormData,
@@ -25,9 +25,7 @@ const LP_DECIMALS = 9;
 
 /**
  * Convert a human-readable decimal string to a raw BigInt string.
- *
- *   toRaw("100.5", 20)  → "10050000000000000000000"
- *   toRaw("0.01",   9)  → "10000000"
+ *   toRaw("100.5", 20) → "10050000000000000000000"
  */
 function toRaw(value: string, decimals: number): string {
     if (!value || value.trim() === "" || Number(value) === 0) return "0";
@@ -39,9 +37,7 @@ function toRaw(value: string, decimals: number): string {
 
 /**
  * Convert a raw BigInt string back to a human-readable decimal string.
- *
- *   fromRaw("10050000000000000000000", 20)  → "100.5"
- *   fromRaw("10000000", 9)                   → "0.01"
+ *   fromRaw("10050000000000000000000", 20) → "100.5"
  */
 function fromRaw(rawValue: string, decimals: number): string {
     if (!rawValue || rawValue === "0") return "0";
@@ -67,12 +63,10 @@ function formatTokens(rawValue: string, decimals: number = SOL_DECIMALS): string
 
 /**
  * Derive the price precision exponent from the market name.
- *
  *   SDK price = usd_price × 10^(30 − base_token_decimals)
- *   SOL → 30−9 = 21   |  BTC/ETH → 30−8 = 22   |  USDC → 30−6 = 24
  */
 function getPricePrecision(marketName: string): number {
-    const base = (marketName.split("/")[0] || "SOL").trim().toUpperCase();
+    const base = getBaseSymbol(marketName);
     if (["BTC", "WBTC"].includes(base)) return 22;
     if (["ETH", "WETH"].includes(base)) return 22;
     if (["USDC", "USDT", "DAI"].includes(base)) return 24;
@@ -85,7 +79,27 @@ function getCollateralDecimals(collateralToken: string, longToken: string): numb
     return collateralToken === longToken ? SOL_DECIMALS : USDC_DECIMALS;
 }
 
+/** Extract base token symbol from market name, e.g. "SOL/USD [USDC]" → "SOL" */
+function getBaseSymbol(marketName: string): string {
+    return (marketName.split("/")[0] || "SOL").trim().toUpperCase();
+}
+
+/**
+ * Safe percentage of a raw BigInt string.
+ *   rawPercentage("1000000", 50) → "500000"
+ */
+function rawPercentage(rawValue: string, percent: number): string {
+    if (!rawValue || rawValue === "0" || percent <= 0) return "0";
+    if (percent >= 100) return rawValue;
+    const bn = BigInt(rawValue);
+    const result = (bn * BigInt(Math.round(percent * 100))) / BigInt(10000);
+    return result.toString();
+}
+
 // ─── UI Constants ─────────────────────────────────────────────────────
+
+const LEVERAGE_PRESETS = [2, 5, 10, 20, 50];
+const CLOSE_PERCENT_PRESETS = [25, 50, 75, 100];
 
 const ORDER_KINDS: { label: string; value: CreateOrderKind }[] = [
     { label: "Market Increase", value: "MarketIncrease" },
@@ -123,7 +137,7 @@ const DemoGmSol = () => {
 
     const [activeTab, setActiveTab] = useState<Tab>("orders");
 
-    // ── Order form (human-readable values) ──────────────────────────────
+    // ── Order form (leverage-based) ─────────────────────────────────────
     const [orderForm, setOrderForm] = useState({
         marketToken: "",
         collateralToken: "",
@@ -131,58 +145,83 @@ const DemoGmSol = () => {
         shortToken: "",
         isLong: true,
         orderKind: "MarketIncrease" as CreateOrderKind,
-        sizeUsd: "100",           // $100 USD
-        amount: "0.5",            // 0.5 SOL / tokens
-        triggerPrice: "",         // $150.23
-        takeProfitPrice: "",      // $180.00
-        stopLossPrice: "",        // $120.00
+        sizeSol: "",              // position size in index tokens (e.g. "1" for 1 SOL)
+        leverage: "10",           // leverage multiplier
+        markPrice: "",            // estimated USD price per index token
+        // For decrease/swap orders (non-leverage mode)
+        sizeUsd: "",              // position size in USD
+        amount: "",               // collateral/pay amount in tokens
+        // Shared
+        triggerPrice: "",
+        takeProfitPrice: "",
+        stopLossPrice: "",
     });
 
-    // ── Deposit form (human-readable values) ────────────────────────────
+    // ── Deposit form ────────────────────────────────────────────────────
     const [depositForm, setDepositForm] = useState({
         marketToken: "",
         longToken: "",
         shortToken: "",
         longPayToken: "",
         shortPayToken: "",
-        longPayAmount: "1",       // 1 SOL
-        shortPayAmount: "0",
+        longPayAmount: "",
+        shortPayAmount: "",
         minReceiveAmount: "0",
     });
 
-    // ── Withdrawal form (human-readable values) ─────────────────────────
+    // ── Withdrawal form ─────────────────────────────────────────────────
     const [withdrawForm, setWithdrawForm] = useState({
         marketToken: "",
         longToken: "",
         shortToken: "",
-        marketTokenAmount: "2",   // 2 LP tokens
+        marketTokenAmount: "",
     });
 
-    // ── Shift form (human-readable values) ──────────────────────────────
+    // ── Shift form ──────────────────────────────────────────────────────
     const [shiftForm, setShiftForm] = useState({
         fromMarketToken: "",
         toMarketToken: "",
-        fromMarketTokenAmount: "2", // 2 LP tokens
+        fromMarketTokenAmount: "",
     });
 
-    // ── Update order modal state ────────────────────────────────────────
+    // ── Update order modal ──────────────────────────────────────────────
     const [updateTarget, setUpdateTarget] = useState<string | null>(null);
     const [updateFields, setUpdateFields] = useState({
-        sizeDeltaValue: "",       // human USD
-        triggerPrice: "",         // human USD price
+        sizeDeltaValue: "",
+        triggerPrice: "",
     });
 
-    // ── Close position confirmation ─────────────────────────────────────
+    // ── Close position state ────────────────────────────────────────────
     const [closingPositionAddr, setClosingPositionAddr] = useState<string | null>(null);
+    const [closePercent, setClosePercent] = useState(100);
 
-    // ── Pre-order details visibility ────────────────────────────────────
+    // ── Preview visibility ──────────────────────────────────────────────
     const [showOrderPreview, setShowOrderPreview] = useState(false);
 
-    // ── Market helpers ──────────────────────────────────────────────────
+    // ── Derived helpers ─────────────────────────────────────────────────
 
     const selectedMarketForOrder = markets.find(
         (m) => m.marketTokenMint === orderForm.marketToken,
     );
+    const baseSymbol = getBaseSymbol(selectedMarketForOrder?.name || "SOL/USD");
+    const isPayingSol = orderForm.collateralToken === orderForm.longToken;
+    const collateralSymbol = isPayingSol ? baseSymbol : "USDC";
+
+    const isIncreaseOrder =
+        orderForm.orderKind === "MarketIncrease" ||
+        orderForm.orderKind === "LimitIncrease";
+
+    const isSwapOrder =
+        orderForm.orderKind === "MarketSwap" ||
+        orderForm.orderKind === "LimitSwap";
+
+    const needsTriggerPrice =
+        orderForm.orderKind === "LimitIncrease" ||
+        orderForm.orderKind === "LimitDecrease" ||
+        orderForm.orderKind === "StopLossDecrease" ||
+        orderForm.orderKind === "LimitSwap";
+
+    // ── Market selectors ────────────────────────────────────────────────
 
     const selectMarketForOrder = (marketTokenMint: string) => {
         const market = markets.find((m) => m.marketTokenMint === marketTokenMint);
@@ -223,17 +262,78 @@ const DemoGmSol = () => {
         }
     };
 
-    const needsTriggerPrice =
-        orderForm.orderKind === "LimitIncrease" ||
-        orderForm.orderKind === "LimitDecrease" ||
-        orderForm.orderKind === "StopLossDecrease" ||
-        orderForm.orderKind === "LimitSwap";
+    // ── Computed: order estimates (leverage mode) ────────────────────────
 
-    // ── Submit adapters (convert human → raw) ───────────────────────────
+    const orderComputed = useMemo(() => {
+        if (!isIncreaseOrder) return null;
+
+        const size = parseFloat(orderForm.sizeSol) || 0;
+        const lev = Math.max(parseFloat(orderForm.leverage) || 1, 1);
+        const price = parseFloat(orderForm.markPrice) || 0;
+
+        const positionValueUsd = size * price;
+        const collateralValueUsd = positionValueUsd / lev;
+
+        // Collateral in token terms
+        const collateralTokenAmount = isPayingSol
+            ? size / lev                           // SOL
+            : (size * price) / lev;                // USDC
+
+        return {
+            positionValueUsd,
+            collateralValueUsd,
+            collateralTokenAmount,
+            effectiveLeverage: lev,
+            hasPriceData: price > 0 && size > 0,
+        };
+    }, [orderForm.sizeSol, orderForm.leverage, orderForm.markPrice, isPayingSol, isIncreaseOrder]);
+
+    // ── Computed: close position details ────────────────────────────────
+
+    const closeComputed = useMemo(() => {
+        if (!closingPositionAddr) return null;
+        const pos = positions.find((p) => p.address === closingPositionAddr);
+        if (!pos) return null;
+
+        const closeSizeUsd = rawPercentage(pos.sizeInUsd, closePercent);
+        const closeSizeTokens = rawPercentage(pos.sizeInTokens, closePercent);
+        const closeCollateral = rawPercentage(pos.collateralAmount, closePercent);
+
+        return {
+            closeSizeUsd,
+            closeSizeTokens,
+            closeCollateral,
+            isFullClose: closePercent >= 100,
+        };
+    }, [closingPositionAddr, closePercent, positions]);
+
+    // ── Submit: order (leverage mode for increase, raw for others) ──────
 
     const handleSubmitOrder = () => {
         const pricePrecision = getPricePrecision(selectedMarketForOrder?.name || "");
         const collateralDec = getCollateralDecimals(orderForm.collateralToken, orderForm.longToken);
+
+        let sizeDeltaUsd: string;
+        let amount: string;
+
+        if (isIncreaseOrder && orderComputed) {
+            // Leverage mode: derive from sizeSol × markPrice / leverage
+            const sizeVal = parseFloat(orderForm.sizeSol) || 0;
+            const levVal = Math.max(parseFloat(orderForm.leverage) || 1, 1);
+            const priceVal = parseFloat(orderForm.markPrice) || 0;
+
+            const posValueUsd = sizeVal * priceVal;
+            const collateralTokenAmt = isPayingSol
+                ? sizeVal / levVal
+                : (sizeVal * priceVal) / levVal;
+
+            sizeDeltaUsd = toRaw(posValueUsd.toFixed(6), USD_PRECISION);
+            amount = toRaw(collateralTokenAmt.toFixed(collateralDec), collateralDec);
+        } else {
+            // Direct mode for decrease/swap
+            sizeDeltaUsd = toRaw(orderForm.sizeUsd, USD_PRECISION);
+            amount = toRaw(orderForm.amount, collateralDec);
+        }
 
         const formData: CreateOrderFormData = {
             marketToken: orderForm.marketToken,
@@ -242,8 +342,8 @@ const DemoGmSol = () => {
             shortToken: orderForm.shortToken,
             isLong: orderForm.isLong,
             orderKind: orderForm.orderKind,
-            sizeDeltaUsd: toRaw(orderForm.sizeUsd, USD_PRECISION),
-            amount: toRaw(orderForm.amount, collateralDec),
+            sizeDeltaUsd,
+            amount,
             triggerPrice: orderForm.triggerPrice ? toRaw(orderForm.triggerPrice, pricePrecision) : "",
             takeProfitPrice: orderForm.takeProfitPrice ? toRaw(orderForm.takeProfitPrice, pricePrecision) : "",
             stopLossPrice: orderForm.stopLossPrice ? toRaw(orderForm.stopLossPrice, pricePrecision) : "",
@@ -302,6 +402,16 @@ const DemoGmSol = () => {
         });
         setUpdateTarget(null);
         setUpdateFields({ sizeDeltaValue: "", triggerPrice: "" });
+    };
+
+    const handleClosePosition = async () => {
+        if (!closingPositionAddr || !closeComputed) return;
+        const pos = positions.find((p) => p.address === closingPositionAddr);
+        if (!pos) return;
+
+        await submitClosePosition(pos, closeComputed.closeSizeUsd);
+        setClosingPositionAddr(null);
+        setClosePercent(100);
     };
 
     // ── Render ──────────────────────────────────────────────────────────
@@ -416,8 +526,8 @@ const DemoGmSol = () => {
                         </select>
                     </div>
 
-                    {/* Collateral token — dropdown instead of raw address */}
-                    {orderForm.marketToken && (
+                    {/* Collateral token dropdown */}
+                    {orderForm.marketToken && !isSwapOrder && (
                         <div>
                             <label className="block text-xs text-zinc-500 mb-1">Pay With</label>
                             <select
@@ -435,60 +545,171 @@ const DemoGmSol = () => {
                         </div>
                     )}
 
-                    {/* Side buttons */}
-                    <div className="flex gap-2">
-                        <button
-                            onClick={() => setOrderForm((p) => ({ ...p, isLong: true }))}
-                            className={`flex-1 py-2 rounded font-medium text-sm transition-colors ${orderForm.isLong ? "bg-green-600 text-white" : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
-                                }`}
-                        >
-                            Long
-                        </button>
-                        <button
-                            onClick={() => setOrderForm((p) => ({ ...p, isLong: false }))}
-                            className={`flex-1 py-2 rounded font-medium text-sm transition-colors ${!orderForm.isLong ? "bg-red-600 text-white" : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
-                                }`}
-                        >
-                            Short
-                        </button>
-                    </div>
-
-                    {/* Amount + Size */}
-                    <div className="grid grid-cols-2 gap-3">
-                        <div>
-                            <label className="block text-xs text-zinc-500 mb-1">
-                                Collateral Amount
-                                <span className="text-zinc-600 ml-1">
-                                    ({orderForm.collateralToken === orderForm.longToken ? "SOL" : "USDC"})
-                                </span>
-                            </label>
-                            <input
-                                type="number"
-                                step="any"
-                                min="0"
-                                value={orderForm.amount}
-                                onChange={(e) => setOrderForm((p) => ({ ...p, amount: e.target.value }))}
-                                className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm"
-                                placeholder="e.g. 0.5"
-                            />
+                    {/* Side buttons — not for swap orders */}
+                    {!isSwapOrder && (
+                        <div className="flex gap-2">
+                            <button
+                                onClick={() => setOrderForm((p) => ({ ...p, isLong: true }))}
+                                className={`flex-1 py-2 rounded font-medium text-sm transition-colors ${orderForm.isLong ? "bg-green-600 text-white" : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
+                                    }`}
+                            >
+                                Long
+                            </button>
+                            <button
+                                onClick={() => setOrderForm((p) => ({ ...p, isLong: false }))}
+                                className={`flex-1 py-2 rounded font-medium text-sm transition-colors ${!orderForm.isLong ? "bg-red-600 text-white" : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
+                                    }`}
+                            >
+                                Short
+                            </button>
                         </div>
-                        <div>
-                            <label className="block text-xs text-zinc-500 mb-1">
-                                Position Size <span className="text-zinc-600">(USD)</span>
-                            </label>
-                            <input
-                                type="number"
-                                step="any"
-                                min="0"
-                                value={orderForm.sizeUsd}
-                                onChange={(e) => setOrderForm((p) => ({ ...p, sizeUsd: e.target.value }))}
-                                className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm"
-                                placeholder="e.g. 100"
-                            />
-                        </div>
-                    </div>
+                    )}
 
-                    {/* Trigger price */}
+                    {/* ── INCREASE ORDER: Leverage-based inputs ─────────────────── */}
+                    {isIncreaseOrder && (
+                        <>
+                            {/* Size in tokens */}
+                            <div>
+                                <label className="block text-xs text-zinc-500 mb-1">
+                                    Position Size <span className="text-zinc-600">({baseSymbol})</span>
+                                </label>
+                                <input
+                                    type="number"
+                                    step="any"
+                                    min="0"
+                                    value={orderForm.sizeSol}
+                                    onChange={(e) => setOrderForm((p) => ({ ...p, sizeSol: e.target.value }))}
+                                    className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm"
+                                    placeholder={`e.g. 1.0 ${baseSymbol}`}
+                                />
+                            </div>
+
+                            {/* Leverage selector */}
+                            <div>
+                                <label className="block text-xs text-zinc-500 mb-1">Leverage</label>
+                                <div className="flex gap-2 mb-2">
+                                    {LEVERAGE_PRESETS.map((lev) => (
+                                        <button
+                                            key={lev}
+                                            onClick={() => setOrderForm((p) => ({ ...p, leverage: String(lev) }))}
+                                            className={`flex-1 py-1.5 rounded text-sm font-medium transition-colors ${parseFloat(orderForm.leverage) === lev
+                                                ? "bg-blue-600 text-white"
+                                                : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700 border border-zinc-700"
+                                                }`}
+                                        >
+                                            {lev}x
+                                        </button>
+                                    ))}
+                                </div>
+                                <input
+                                    type="number"
+                                    step="0.1"
+                                    min="1.1"
+                                    max="100"
+                                    value={orderForm.leverage}
+                                    onChange={(e) => setOrderForm((p) => ({ ...p, leverage: e.target.value }))}
+                                    className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm"
+                                    placeholder="Custom leverage (1.1x – 100x)"
+                                />
+                            </div>
+
+                            {/* Mark price */}
+                            <div>
+                                <label className="block text-xs text-zinc-500 mb-1">
+                                    Mark Price <span className="text-zinc-600">($/{baseSymbol})</span>
+                                </label>
+                                <input
+                                    type="number"
+                                    step="any"
+                                    min="0"
+                                    value={orderForm.markPrice}
+                                    onChange={(e) => setOrderForm((p) => ({ ...p, markPrice: e.target.value }))}
+                                    className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm"
+                                    placeholder="Current price (will auto-fill from oracle)"
+                                />
+                                <p className="text-[10px] text-zinc-600 mt-1">
+                                    Used to estimate position value and collateral. Market orders execute at oracle price.
+                                </p>
+                            </div>
+
+                            {/* Auto-calculated collateral display */}
+                            {orderComputed && orderComputed.hasPriceData && (
+                                <div className="p-3 bg-zinc-800/60 border border-zinc-700/50 rounded-lg space-y-1.5">
+                                    <h4 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Estimated Collateral</h4>
+                                    <div className="flex justify-between text-sm">
+                                        <span className="text-zinc-400">Required Collateral</span>
+                                        <span className="text-white font-medium">
+                                            {orderComputed.collateralTokenAmount.toFixed(isPayingSol ? 6 : 2)} {collateralSymbol}
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between text-sm">
+                                        <span className="text-zinc-400">Collateral Value</span>
+                                        <span className="text-white">
+                                            ${orderComputed.collateralValueUsd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between text-sm">
+                                        <span className="text-zinc-400">Position Value</span>
+                                        <span className="text-white font-medium">
+                                            ${orderComputed.positionValueUsd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between text-sm">
+                                        <span className="text-zinc-400">Effective Leverage</span>
+                                        <span className="text-blue-400 font-medium">{orderComputed.effectiveLeverage}x</span>
+                                    </div>
+                                </div>
+                            )}
+                        </>
+                    )}
+
+                    {/* ── DECREASE / SWAP: Direct inputs ────────────────────────── */}
+                    {!isIncreaseOrder && (
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <label className="block text-xs text-zinc-500 mb-1">
+                                    {isSwapOrder ? "Pay Amount" : "Close Size"}
+                                    <span className="text-zinc-600 ml-1">
+                                        ({isSwapOrder ? collateralSymbol : "USD"})
+                                    </span>
+                                </label>
+                                <input
+                                    type="number"
+                                    step="any"
+                                    min="0"
+                                    value={isSwapOrder ? orderForm.amount : orderForm.sizeUsd}
+                                    onChange={(e) => {
+                                        if (isSwapOrder) {
+                                            setOrderForm((p) => ({ ...p, amount: e.target.value }));
+                                        } else {
+                                            setOrderForm((p) => ({ ...p, sizeUsd: e.target.value }));
+                                        }
+                                    }}
+                                    className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm"
+                                    placeholder={isSwapOrder ? `e.g. 1.0 ${collateralSymbol}` : "e.g. 100"}
+                                />
+                            </div>
+                            {!isSwapOrder && (
+                                <div>
+                                    <label className="block text-xs text-zinc-500 mb-1">
+                                        Withdraw Amount
+                                        <span className="text-zinc-600 ml-1">({collateralSymbol})</span>
+                                    </label>
+                                    <input
+                                        type="number"
+                                        step="any"
+                                        min="0"
+                                        value={orderForm.amount}
+                                        onChange={(e) => setOrderForm((p) => ({ ...p, amount: e.target.value }))}
+                                        className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm"
+                                        placeholder="0 for proportional"
+                                    />
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Trigger price (limit/stop-loss orders) */}
                     {needsTriggerPrice && (
                         <div>
                             <label className="block text-xs text-zinc-500 mb-1">
@@ -540,7 +761,7 @@ const DemoGmSol = () => {
                         </div>
                     )}
 
-                    {/* Pre-Order Details Panel */}
+                    {/* ── Order Preview Panel ───────────────────────────────────── */}
                     {orderForm.marketToken && (
                         <div className="p-4 bg-zinc-800/70 border border-zinc-700 rounded-lg space-y-2">
                             <div className="flex justify-between items-center">
@@ -561,12 +782,14 @@ const DemoGmSol = () => {
                                         {ORDER_KINDS.find((k) => k.value === orderForm.orderKind)?.label ?? orderForm.orderKind}
                                     </span>
                                 </div>
-                                <div className="flex justify-between text-zinc-400">
-                                    <span>Side</span>
-                                    <span className={`font-medium ${orderForm.isLong ? "text-green-400" : "text-red-400"}`}>
-                                        {orderForm.isLong ? "LONG" : "SHORT"}
-                                    </span>
-                                </div>
+                                {!isSwapOrder && (
+                                    <div className="flex justify-between text-zinc-400">
+                                        <span>Side</span>
+                                        <span className={`font-medium ${orderForm.isLong ? "text-green-400" : "text-red-400"}`}>
+                                            {orderForm.isLong ? "LONG" : "SHORT"}
+                                        </span>
+                                    </div>
+                                )}
                                 <div className="flex justify-between text-zinc-400">
                                     <span>Market</span>
                                     <span className="text-white text-xs">
@@ -578,16 +801,51 @@ const DemoGmSol = () => {
                             {/* Expanded details */}
                             {showOrderPreview && (
                                 <div className="text-sm space-y-1 pt-2 border-t border-zinc-700">
-                                    <div className="flex justify-between text-zinc-400">
-                                        <span>Position Size</span>
-                                        <span className="text-white">${parseFloat(orderForm.sizeUsd || "0").toLocaleString()}</span>
-                                    </div>
-                                    <div className="flex justify-between text-zinc-400">
-                                        <span>Collateral</span>
-                                        <span className="text-white">
-                                            {orderForm.amount} {orderForm.collateralToken === orderForm.longToken ? "SOL" : "USDC"}
-                                        </span>
-                                    </div>
+                                    {isIncreaseOrder && orderComputed && orderComputed.hasPriceData && (
+                                        <>
+                                            <div className="flex justify-between text-zinc-400">
+                                                <span>Position Size</span>
+                                                <span className="text-white">
+                                                    {orderForm.sizeSol} {baseSymbol} ≈ ${orderComputed.positionValueUsd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                </span>
+                                            </div>
+                                            <div className="flex justify-between text-zinc-400">
+                                                <span>Leverage</span>
+                                                <span className="text-blue-400 font-medium">{orderComputed.effectiveLeverage}x</span>
+                                            </div>
+                                            <div className="flex justify-between text-zinc-400">
+                                                <span>Collateral</span>
+                                                <span className="text-white">
+                                                    {orderComputed.collateralTokenAmount.toFixed(isPayingSol ? 6 : 2)} {collateralSymbol}
+                                                    {" ≈ $"}{orderComputed.collateralValueUsd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                </span>
+                                            </div>
+                                            <div className="flex justify-between text-zinc-400">
+                                                <span>Mark Price</span>
+                                                <span className="text-white">${parseFloat(orderForm.markPrice).toLocaleString()}</span>
+                                            </div>
+                                        </>
+                                    )}
+                                    {!isIncreaseOrder && (
+                                        <>
+                                            {orderForm.sizeUsd && (
+                                                <div className="flex justify-between text-zinc-400">
+                                                    <span>{isSwapOrder ? "Pay Amount" : "Close Size"}</span>
+                                                    <span className="text-white">
+                                                        {isSwapOrder
+                                                            ? `${orderForm.amount} ${collateralSymbol}`
+                                                            : `$${parseFloat(orderForm.sizeUsd || "0").toLocaleString()}`}
+                                                    </span>
+                                                </div>
+                                            )}
+                                            {!isSwapOrder && orderForm.amount && (
+                                                <div className="flex justify-between text-zinc-400">
+                                                    <span>Withdraw Amount</span>
+                                                    <span className="text-white">{orderForm.amount} {collateralSymbol}</span>
+                                                </div>
+                                            )}
+                                        </>
+                                    )}
                                     {needsTriggerPrice && orderForm.triggerPrice && (
                                         <div className="flex justify-between text-zinc-400">
                                             <span>Trigger Price</span>
@@ -607,16 +865,16 @@ const DemoGmSol = () => {
                                         </div>
                                     )}
 
-                                    {/* Fee & execution info */}
+                                    {/* Execution info */}
                                     <div className="pt-2 border-t border-zinc-700/50 space-y-1">
                                         <div className="flex justify-between text-zinc-400">
-                                            <span>Network Priority Fee</span>
-                                            <span className="text-yellow-400 text-xs">~0.003 SOL</span>
+                                            <span>Priority Fee</span>
+                                            <span className="text-zinc-300 text-xs">2M microlamports/CU</span>
                                         </div>
                                         <div className="flex justify-between text-zinc-400">
                                             <span>Execution</span>
                                             <span className="text-white text-xs">
-                                                {orderForm.orderKind.startsWith("Market") ? "Immediate (market price)" : "When trigger price is reached"}
+                                                {orderForm.orderKind.startsWith("Market") ? "Immediate (oracle price)" : "When trigger price is reached"}
                                             </span>
                                         </div>
                                         {(orderForm.takeProfitPrice || orderForm.stopLossPrice) && (
@@ -664,7 +922,6 @@ const DemoGmSol = () => {
                         </select>
                     </div>
 
-                    {/* Token info — read-only, auto-filled from market selection */}
                     {depositForm.marketToken && (
                         <div className="grid grid-cols-2 gap-3">
                             <div className="p-2 bg-zinc-800/50 rounded border border-zinc-700/50">
@@ -886,6 +1143,9 @@ const DemoGmSol = () => {
                     <div className="grid gap-4 md:grid-cols-2 mt-4">
                         {positions.map((pos) => {
                             const posMarket = markets.find((m) => m.marketTokenMint === pos.marketToken);
+                            const posBaseSymbol = getBaseSymbol(posMarket?.name || "SOL/USD");
+                            const posCollDec = posMarket && pos.collateralToken === posMarket.longToken ? SOL_DECIMALS : USDC_DECIMALS;
+                            const posCollSymbol = posMarket && pos.collateralToken === posMarket.longToken ? posBaseSymbol : "USDC";
                             return (
                                 <div
                                     key={pos.address}
@@ -909,18 +1169,21 @@ const DemoGmSol = () => {
                                                 <span className="font-medium text-white">{formatUsd(pos.sizeInUsd)}</span>
                                             </div>
                                             <div className="flex justify-between">
-                                                <span>Size (Tokens)</span>
-                                                <span>{formatTokens(pos.sizeInTokens)}</span>
+                                                <span>Size ({posBaseSymbol})</span>
+                                                <span>{formatTokens(pos.sizeInTokens)} {posBaseSymbol}</span>
                                             </div>
                                             <div className="flex justify-between">
                                                 <span>Collateral</span>
-                                                <span>{formatTokens(pos.collateralAmount)}</span>
+                                                <span>{formatTokens(pos.collateralAmount, posCollDec)} {posCollSymbol}</span>
                                             </div>
                                         </div>
                                     </div>
 
                                     <button
-                                        onClick={() => setClosingPositionAddr(pos.address)}
+                                        onClick={() => {
+                                            setClosingPositionAddr(pos.address);
+                                            setClosePercent(100);
+                                        }}
                                         disabled={isLoading}
                                         className="w-full py-2 bg-red-600/20 text-red-500 border border-red-600/50 rounded font-semibold hover:bg-red-600 hover:text-white disabled:opacity-50 transition-colors text-sm"
                                     >
@@ -975,7 +1238,7 @@ const DemoGmSol = () => {
                                                 <span>
                                                     {ord.triggerPrice !== "0"
                                                         ? `$${parseFloat(fromRaw(ord.triggerPrice, ordPriceDec)).toLocaleString()}`
-                                                        : "—"}
+                                                        : "Market"}
                                                 </span>
                                             </div>
                                         </div>
@@ -1007,20 +1270,21 @@ const DemoGmSol = () => {
                 )}
             </div>
 
-            {/* ══ Close Position Confirmation Modal ═════════════════════════ */}
+            {/* ══ Close Position Modal ═══════════════════════════════════════ */}
             {closingPositionAddr && (() => {
                 const pos = positions.find((p) => p.address === closingPositionAddr);
                 if (!pos) return null;
                 const posMarket = markets.find((m) => m.marketTokenMint === pos.marketToken);
+                const posBaseSymbol = getBaseSymbol(posMarket?.name || "SOL/USD");
+                const posCollDec = posMarket && pos.collateralToken === posMarket.longToken ? SOL_DECIMALS : USDC_DECIMALS;
+                const posCollSymbol = posMarket && pos.collateralToken === posMarket.longToken ? posBaseSymbol : "USDC";
+
                 return (
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
                         <div className="bg-zinc-900 border border-zinc-700 rounded-lg p-6 w-full max-w-md space-y-4">
                             <h3 className="text-lg font-semibold text-red-400">Close Position</h3>
-                            <p className="text-sm text-zinc-400">
-                                This will create a <span className="text-white">Market Decrease</span> order
-                                to close your entire position.
-                            </p>
 
+                            {/* Position info */}
                             <div className="text-sm space-y-1 p-3 bg-zinc-800 rounded border border-zinc-700">
                                 <div className="flex justify-between text-zinc-400">
                                     <span>Market</span>
@@ -1033,35 +1297,99 @@ const DemoGmSol = () => {
                                     </span>
                                 </div>
                                 <div className="flex justify-between text-zinc-400">
-                                    <span>Position Size</span>
-                                    <span className="font-medium text-white">{formatUsd(pos.sizeInUsd)}</span>
+                                    <span>Total Size</span>
+                                    <span className="text-white">
+                                        {formatUsd(pos.sizeInUsd)} ({formatTokens(pos.sizeInTokens)} {posBaseSymbol})
+                                    </span>
                                 </div>
                                 <div className="flex justify-between text-zinc-400">
-                                    <span>Collateral</span>
-                                    <span className="text-white">{formatTokens(pos.collateralAmount)}</span>
-                                </div>
-                                <div className="flex justify-between text-zinc-400">
-                                    <span>Network Fee (est.)</span>
-                                    <span className="text-yellow-400">~0.003 SOL</span>
+                                    <span>Total Collateral</span>
+                                    <span className="text-white">{formatTokens(pos.collateralAmount, posCollDec)} {posCollSymbol}</span>
                                 </div>
                             </div>
 
+                            {/* Close percentage selector */}
+                            <div>
+                                <label className="block text-xs text-zinc-500 mb-2">Close Amount</label>
+                                <div className="flex gap-2 mb-2">
+                                    {CLOSE_PERCENT_PRESETS.map((pct) => (
+                                        <button
+                                            key={pct}
+                                            onClick={() => setClosePercent(pct)}
+                                            className={`flex-1 py-1.5 rounded text-sm font-medium transition-colors ${closePercent === pct
+                                                ? "bg-red-600 text-white"
+                                                : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700 border border-zinc-700"
+                                                }`}
+                                        >
+                                            {pct}%
+                                        </button>
+                                    ))}
+                                </div>
+                                <input
+                                    type="number"
+                                    step="1"
+                                    min="1"
+                                    max="100"
+                                    value={closePercent}
+                                    onChange={(e) => {
+                                        const val = Math.min(100, Math.max(1, parseInt(e.target.value) || 1));
+                                        setClosePercent(val);
+                                    }}
+                                    className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm"
+                                    placeholder="Enter custom percentage (1-100)"
+                                />
+                            </div>
+
+                            {/* Computed close details */}
+                            {closeComputed && (
+                                <div className="text-sm space-y-1 p-3 bg-zinc-800/60 rounded border border-zinc-700/50">
+                                    <h4 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-1">
+                                        Closing {closePercent}% of Position
+                                    </h4>
+                                    <div className="flex justify-between text-zinc-400">
+                                        <span>Close Size (USD)</span>
+                                        <span className="text-white font-medium">{formatUsd(closeComputed.closeSizeUsd)}</span>
+                                    </div>
+                                    <div className="flex justify-between text-zinc-400">
+                                        <span>Close Size ({posBaseSymbol})</span>
+                                        <span className="text-white">{formatTokens(closeComputed.closeSizeTokens)} {posBaseSymbol}</span>
+                                    </div>
+                                    <div className="flex justify-between text-zinc-400">
+                                        <span>Est. Collateral Return</span>
+                                        <span className="text-white">{formatTokens(closeComputed.closeCollateral, posCollDec)} {posCollSymbol}</span>
+                                    </div>
+                                    <div className="flex justify-between text-zinc-400 pt-1 border-t border-zinc-700/50">
+                                        <span>Priority Fee</span>
+                                        <span className="text-zinc-300 text-xs">2M microlamports/CU</span>
+                                    </div>
+                                    <div className="flex justify-between text-zinc-400">
+                                        <span>Execution</span>
+                                        <span className="text-white text-xs">Immediate (oracle price)</span>
+                                    </div>
+                                    {closeComputed.isFullClose && (
+                                        <p className="text-xs text-yellow-400/80 pt-1">
+                                            Full close — entire position will be closed.
+                                        </p>
+                                    )}
+                                </div>
+                            )}
+
                             <div className="flex gap-2">
                                 <button
-                                    onClick={() => setClosingPositionAddr(null)}
+                                    onClick={() => {
+                                        setClosingPositionAddr(null);
+                                        setClosePercent(100);
+                                    }}
                                     className="flex-1 py-2 bg-zinc-800 text-zinc-400 rounded font-medium hover:bg-zinc-700 transition-colors"
                                 >
                                     Cancel
                                 </button>
                                 <button
-                                    onClick={async () => {
-                                        await submitClosePosition(pos);
-                                        setClosingPositionAddr(null);
-                                    }}
+                                    onClick={handleClosePosition}
                                     disabled={isLoading}
                                     className="flex-1 py-2 bg-red-600 text-white rounded font-semibold hover:bg-red-700 disabled:opacity-50 transition-colors"
                                 >
-                                    {isLoading ? "Closing..." : "Confirm Close"}
+                                    {isLoading ? "Closing..." : `Close ${closePercent}%`}
                                 </button>
                             </div>
                         </div>
