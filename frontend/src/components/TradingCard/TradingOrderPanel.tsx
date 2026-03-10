@@ -335,7 +335,7 @@ const TradingOrderPanel = ({ baseSymbol, marketIndex }: OrderPanelProps) => {
             <Separator />
 
             {/* MARKET / LIMIT */}
-            <div className="space-y-3">
+            <div>
                 <div className="flex w-full gap-2">
                     <button
                         onClick={() => setOrderType("market")}
@@ -496,7 +496,7 @@ const TradingOrderPanel = ({ baseSymbol, marketIndex }: OrderPanelProps) => {
 
             {/* EXPANDED TP/SL SECTION */}
             {tpslEnabled && (
-                <div className="space-y-3 pt-1.5 animate-in slide-in-from-top-1 fade-in duration-200">
+                <div className="space-y-2 pt-1.5 animate-in slide-in-from-top-1 fade-in duration-200">
 
                     {/* --- Take Profit Section --- */}
                     <div className="space-y-1">

@@ -8,6 +8,7 @@ import { ThemeToggleButton } from '../custom/ThemeToggle';
 import Image from 'next/image';
 import { useState } from 'react';
 import ConnectWallet from '../wallet/ConnectWallet';
+import ChainSwitchButton from '../common/ChainSwitchButton';
 
 
 export default function Navbar() {
@@ -59,6 +60,7 @@ export default function Navbar() {
                     <div className="flex items-center gap-2">
                         {/* Theme Toggle */}
                         <ThemeToggleButton />
+                        <ChainSwitchButton />
                         <ConnectWallet />
 
                         {/* Mobile Navigation */}

@@ -1,15 +1,18 @@
 /**
  * Drift Protocol — environment constants.
+ *
+ * Network selection is driven by the shared SOLANA_NETWORK value
+ * (persisted in localStorage via the chain-switch button).
  */
 
-import { SOLANA_DEVNET_RPC, SOLANA_MAINNET_RPC } from "@/config/env";
+import { SOLANA_NETWORK, SOLANA_RPC_URL } from "@/config/env";
 
-/** Drift environment — change to "mainnet-beta" for production. */
-export const DRIFT_ENV = "devnet" as const;
+/** Drift environment derived from the global network toggle. */
+export const DRIFT_ENV: "devnet" | "mainnet-beta" =
+  SOLANA_NETWORK === "mainnet" ? "mainnet-beta" : "devnet";
 
 /** Resolved RPC URL based on environment. */
-export const DRIFT_RPC_URL =
-  DRIFT_ENV === "devnet" ? SOLANA_DEVNET_RPC : SOLANA_MAINNET_RPC;
+export const DRIFT_RPC_URL = SOLANA_RPC_URL;
 
 /** Privy chain prefix for transaction signing. */
 export const DRIFT_CHAIN_PREFIX =

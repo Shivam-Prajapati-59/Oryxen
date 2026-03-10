@@ -2,10 +2,10 @@
  * Flash Trade — Environment constants.
  */
 
-import { SOLANA_DEVNET_RPC, SOLANA_MAINNET_RPC } from "@/config/env";
+import { SOLANA_NETWORK, SOLANA_DEVNET_RPC, SOLANA_MAINNET_RPC } from "@/config/env";
 import type { FlashCluster, FlashPoolName, FlashConfig } from "./types";
 
-const FLASH_ENV: FlashCluster = "devnet"; // Change to "mainnet-beta" for production
+const FLASH_ENV: FlashCluster = SOLANA_NETWORK === "mainnet" ? "mainnet-beta" : "devnet";
 
 const FLASH_RPC_URLS: Record<FlashCluster, string> = {
   devnet: SOLANA_DEVNET_RPC,

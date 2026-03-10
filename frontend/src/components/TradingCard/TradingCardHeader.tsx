@@ -55,7 +55,7 @@ const TradingCardHeader = ({ isOpen, setIsOpen, selectedMarket }: TradingCardHea
         <div className="flex flex-col md:flex-row items-stretch justify-between border dark:border-white/10 border-black/20">
 
             {/* LEFT SECTION: MARKET & PRICE */}
-            <div className="flex flex-col lg:flex-row lg:justify-between justify-center p-5 gap-1 lg:flex-1">
+            <div className="flex flex-col lg:flex-row lg:justify-between justify-center p-4 lg:py-3 gap-1 lg:flex-1">
                 <div className="flex items-center gap-3 relative">
                     {/* Market Logo */}
                     {selectedMarket.imageUrl && !imageError ? (
@@ -71,7 +71,7 @@ const TradingCardHeader = ({ isOpen, setIsOpen, selectedMarket }: TradingCardHea
                         <div className="w-6 h-6 bg-linear-to-tr from-[#9945FF] to-[#14F195] rounded-sm shrink-0" />
                     )}
 
-                    <h2 className="text-xl font-ibm font-semibold tracking-wider">
+                    <h2 className="text-xl font-ibm font-medium tracking-wider">
                         {selectedMarket.symbol}
                     </h2>
 
@@ -91,7 +91,7 @@ const TradingCardHeader = ({ isOpen, setIsOpen, selectedMarket }: TradingCardHea
 
                 {/* PRICE */}
                 <div className="lg:ml-auto lg:text-right">
-                    <h2 className="text-2xl lg:text-3xl text-emerald-500 dark:text-emerald-400 font-mono">
+                    <h2 className="text-2xl lg:text-2xl text-emerald-500 dark:text-emerald-400 font-mono">
                         {formatPrice(currentPrice)}
                     </h2>
                     <p className="hidden sm:block text-sm tracking-wide text-muted-foreground font-noto">
@@ -104,7 +104,7 @@ const TradingCardHeader = ({ isOpen, setIsOpen, selectedMarket }: TradingCardHea
             <div className="flex flex-col lg:flex-row border-l dark:border-white/10 border-black/20 min-w-75">
 
                 {/* ROW 1: CHANGE */}
-                <div className="flex lg:flex-col justify-center items-center px-4 py-2 border-t border-b dark:border-white/10 border-black/20 lg:border-t-0 gap-2 lg:border-b-0">
+                <div className="flex lg:flex-col justify-center items-center px-4 py-2 lg:py-1.5 border-t border-b dark:border-white/10 border-black/20 lg:border-t-0 gap-2 lg:border-b-0">
                     <p className="text-sm text-muted-foreground font-noto">
                         Change (24hr)
                     </p>
@@ -114,7 +114,7 @@ const TradingCardHeader = ({ isOpen, setIsOpen, selectedMarket }: TradingCardHea
                 </div>
 
                 {/* ROW 2: FUNDING */}
-                <div className="flex lg:flex-col justify-center items-center px-4 py-2 border-b dark:border-white/10 border-black/20 lg:border-l gap-2 lg:border-b-0">
+                <div className="flex lg:flex-col justify-center items-center px-4 py-2 lg:py-1.5 border-b dark:border-white/10 border-black/20 lg:border-l gap-2 lg:border-b-0">
                     <p className="text-sm text-muted-foreground font-noto">
                         Funding (1hr)
                     </p>

@@ -10,10 +10,19 @@ import {
 import { useDriftContext } from "@/features/drift/DriftContext";
 import { useGmxsolContext } from "@/features/gmxsol/GmxsolContext";
 import { useProtocol } from "@/features/protocol-adapter/ProtocolContext";
+import { usePriceFeed } from "@/hooks/usePriceFeed";
 import type { Position } from "@/features/protocol-adapter/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+
+/** Index-token decimals keyed by normalised base symbol. */
+const INDEX_TOKEN_DECIMALS: Record<string, number> = {
+    sol: 9, btc: 8, eth: 18, wbtc: 8, weth: 18,
+};
+function indexDecimals(symbol: string): number {
+    return INDEX_TOKEN_DECIMALS[symbol.toLowerCase()] ?? 9;
+}
 
 const formatUsd = (value: number): string => {
     if (Math.abs(value) < 0.01) return "$0.00";
@@ -68,6 +77,24 @@ const TradingCardFooter = () => {
         };
     }, [isDriftReady, drift]);
 
+    // ── GMSOL: extract base symbols for Pyth price subscription ───
+    const gmsolBaseSymbols = useMemo(() => {
+        const symbols = new Set<string>();
+        for (const pos of gmsol.positions) {
+            const market = gmsol.markets.find(
+                (m) => m.marketTokenMint === pos.marketToken,
+            );
+            if (market?.name) {
+                // Market name is e.g. "SOL/USD" → extract "SOL"
+                const base = market.name.split("/")[0]?.trim();
+                if (base) symbols.add(base);
+            }
+        }
+        return Array.from(symbols);
+    }, [gmsol.positions, gmsol.markets]);
+
+    const { prices: pythPrices } = usePriceFeed(gmsolBaseSymbols);
+
     // ── GMSOL data ─────────────────────────────────────────────────
     const gmsolPositions: (Position & { protocol: string })[] = useMemo(() => {
         return gmsol.positions.map((pos, idx) => {
@@ -80,20 +107,49 @@ const TradingCardFooter = () => {
             const market = gmsol.markets.find(
                 (m) => m.marketTokenMint === pos.marketToken,
             );
-            // TODO: integrate oracle price feed for real entry/current/pnl
+            const baseSymbol = market?.name?.split("/")[0]?.trim() || "";
+            const tokDecimals = indexDecimals(baseSymbol);
+
+            // Entry price = sizeInUsd / sizeInTokens (both u128)
+            // sizeInUsd has 30 decimals, sizeInTokens has tokDecimals decimals
+            const sizeInTokensRaw = BigInt(pos.sizeInTokens || "0");
+            let entryPrice = 0;
+            if (sizeInTokensRaw > BigInt(0)) {
+                // entryPrice = (sizeInUsd / 1e30) / (sizeInTokens / 10^tokDecimals)
+                //            = sizeInUsd * 10^tokDecimals / (sizeInTokens * 10^30)
+                // We scale to 18 intermediate decimals to preserve precision
+                const PRECISION = BigInt(18);
+                const scaledNumerator = sizeRaw * BigInt(10) ** (PRECISION + BigInt(tokDecimals));
+                const scaledDenominator = sizeInTokensRaw * BigInt(10) ** BigInt(30);
+                entryPrice = Number(scaledNumerator / scaledDenominator) / Number(BigInt(10) ** PRECISION);
+            }
+
+            // Current price from Pyth websocket
+            const currentPrice = baseSymbol ? (pythPrices[baseSymbol] ?? 0) : 0;
+
+            // PnL = tokenAmount * (currentPrice - entryPrice) for longs
+            //      = tokenAmount * (entryPrice - currentPrice) for shorts
+            const tokenAmount = Number(sizeInTokensRaw) / Math.pow(10, tokDecimals);
+            let unrealizedPnl = 0;
+            if (currentPrice > 0 && entryPrice > 0) {
+                unrealizedPnl = pos.side === "long"
+                    ? tokenAmount * (currentPrice - entryPrice)
+                    : tokenAmount * (entryPrice - currentPrice);
+            }
+
             return {
                 marketIndex: idx,
                 marketSymbol: market?.name || pos.marketToken.slice(0, 8),
                 size: sizeUsd,
-                entryPrice: 0, // requires oracle data
-                currentPrice: 0, // requires oracle data
-                unrealizedPnl: 0, // requires oracle data
+                entryPrice,
+                currentPrice,
+                unrealizedPnl,
                 leverage: collateralUsd > 0 ? sizeUsd / collateralUsd : 0,
                 protocol: "GMXSol" as const,
                 side: pos.side,
             };
         });
-    }, [gmsol.positions, gmsol.markets]);
+    }, [gmsol.positions, gmsol.markets, pythPrices]);
 
     // ── Merged views ───────────────────────────────────────────────
     type PositionWithMeta = Position & { protocol: string; side: string };

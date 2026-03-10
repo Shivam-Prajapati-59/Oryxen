@@ -24,6 +24,32 @@ export const SOLANA_MAINNET_RPC =
 export const SOLANA_DEVNET_RPC =
   process.env.NEXT_PUBLIC_SOLANA_DEVNET_RPC || "https://api.devnet.solana.com";
 
+// ─── Solana Network Selection ────────────────────────────────────────
+
+const NETWORK_STORAGE_KEY = "oryxen_solana_network";
+
+/** Read the user-selected Solana network from localStorage (SSR-safe). */
+export function getSolanaNetwork(): "devnet" | "mainnet" {
+  if (typeof window === "undefined") return "devnet";
+  const stored = localStorage.getItem(NETWORK_STORAGE_KEY);
+  if (stored === "mainnet") return "mainnet";
+  return "devnet";
+}
+
+/** Persist the user-selected Solana network and reload so module-level constants re-evaluate. */
+export function setSolanaNetwork(network: "devnet" | "mainnet"): void {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(NETWORK_STORAGE_KEY, network);
+  window.location.reload();
+}
+
+/** The active Solana network at module-load time. */
+export const SOLANA_NETWORK = getSolanaNetwork();
+
+/** The resolved RPC URL for the current network. */
+export const SOLANA_RPC_URL =
+  SOLANA_NETWORK === "mainnet" ? SOLANA_MAINNET_RPC : SOLANA_DEVNET_RPC;
+
 // ─── WebSocket ───────────────────────────────────────────────────────
 
 /** WebSocket URL for real-time price feeds from the backend. */
