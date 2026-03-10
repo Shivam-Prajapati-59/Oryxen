@@ -310,6 +310,13 @@ const DemoGmSol = () => {
     // ── Submit: order (leverage mode for increase, raw for others) ──────
 
     const handleSubmitOrder = () => {
+        if (isIncreaseOrder && orderComputed) {
+            if (!(parseFloat(orderForm.sizeSol) > 0) || !(parseFloat(orderForm.markPrice) > 0)) {
+                alert("Please enter a valid Position Size (>0) and Mark Price (>0)");
+                return;
+            }
+        }
+
         const pricePrecision = getPricePrecision(selectedMarketForOrder?.name || "");
         const collateralDec = getCollateralDecimals(orderForm.collateralToken, orderForm.longToken);
 
@@ -822,7 +829,7 @@ const DemoGmSol = () => {
                                             </div>
                                             <div className="flex justify-between text-zinc-400">
                                                 <span>Mark Price</span>
-                                                <span className="text-white">${parseFloat(orderForm.markPrice).toLocaleString()}</span>
+                                                <span className="text-white">${Number.isFinite(parseFloat(orderForm.markPrice)) ? parseFloat(orderForm.markPrice).toLocaleString() : "-"}</span>
                                             </div>
                                         </>
                                     )}
@@ -849,19 +856,19 @@ const DemoGmSol = () => {
                                     {needsTriggerPrice && orderForm.triggerPrice && (
                                         <div className="flex justify-between text-zinc-400">
                                             <span>Trigger Price</span>
-                                            <span className="text-white">${parseFloat(orderForm.triggerPrice).toLocaleString()}</span>
+                                            <span className="text-white">${Number.isFinite(parseFloat(orderForm.triggerPrice)) ? parseFloat(orderForm.triggerPrice).toLocaleString() : "-"}</span>
                                         </div>
                                     )}
                                     {orderForm.takeProfitPrice && (
                                         <div className="flex justify-between text-zinc-400">
                                             <span>Take-Profit</span>
-                                            <span className="text-green-400">${parseFloat(orderForm.takeProfitPrice).toLocaleString()}</span>
+                                            <span className="text-green-400">${Number.isFinite(parseFloat(orderForm.takeProfitPrice)) ? parseFloat(orderForm.takeProfitPrice).toLocaleString() : "-"}</span>
                                         </div>
                                     )}
                                     {orderForm.stopLossPrice && (
                                         <div className="flex justify-between text-zinc-400">
                                             <span>Stop-Loss</span>
-                                            <span className="text-red-400">${parseFloat(orderForm.stopLossPrice).toLocaleString()}</span>
+                                            <span className="text-red-400">${Number.isFinite(parseFloat(orderForm.stopLossPrice)) ? parseFloat(orderForm.stopLossPrice).toLocaleString() : "-"}</span>
                                         </div>
                                     )}
 
@@ -1062,7 +1069,7 @@ const DemoGmSol = () => {
                             className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm"
                         >
                             <option value="">-- Select destination market --</option>
-                            {markets.map((m) => (
+                            {markets.filter((m) => m.marketTokenMint !== shiftForm.fromMarketToken).map((m) => (
                                 <option key={m.marketTokenMint} value={m.marketTokenMint}>
                                     {m.name || m.address.slice(0, 12) + "..."}
                                 </option>

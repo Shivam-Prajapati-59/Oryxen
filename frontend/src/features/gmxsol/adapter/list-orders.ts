@@ -76,6 +76,11 @@ export const listOrders = async (
       const sideNum = params.side ?? 0;
       const actionStateNum = header.actionState ?? 0;
 
+      let parsedSide: "long" | "short";
+      if (sideNum === 0) parsedSide = "long";
+      else if (sideNum === 1) parsedSide = "short";
+      else throw new Error(`Unexpected sideNum: ${sideNum}`);
+
       return {
         address: o.publicKey.toBase58(),
         id: header.id?.toString() ?? "0",
@@ -83,7 +88,7 @@ export const listOrders = async (
         store: header.store?.toBase58?.() ?? "",
         marketToken: acct.marketToken?.toBase58?.() ?? "",
         kind: ORDER_KINDS[kindNum] ?? `Unknown(${kindNum})`,
-        side: sideNum === 1 ? "short" : "long",
+        side: parsedSide,
         actionState:
           ACTION_STATES[actionStateNum] ?? `Unknown(${actionStateNum})`,
         sizeDeltaValue: params.sizeDeltaValue?.toString() ?? "0",

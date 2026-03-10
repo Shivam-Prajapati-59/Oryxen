@@ -53,16 +53,16 @@ const OFF_COLLATERAL_AMOUNT = 200;
 const OFF_SIZE_IN_USD = 216;
 const OFF_BORROWING_FACTOR = 232;
 
-/** Read a little-endian u128 from a Buffer as a bigint string. */
-function readU128(buf: Buffer, offset: number): string {
-  // Read as two u64 LE halves: low 8 bytes + high 8 bytes
-  const lo = buf.readBigUInt64LE(offset);
-  const hi = buf.readBigUInt64LE(offset + 8);
+/** Read a little-endian u128 from a Uint8Array as a bigint string. */
+function readU128(buf: Uint8Array, offset: number): string {
+  const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  const lo = view.getBigUint64(offset, true);
+  const hi = view.getBigUint64(offset + 8, true);
   return ((hi << BigInt(64)) | lo).toString();
 }
 
-/** Read a Pubkey (32 bytes) from a Buffer as a base58 string. */
-function readPubkey(buf: Buffer, offset: number): string {
+/** Read a Pubkey (32 bytes) from a Uint8Array as a base58 string. */
+function readPubkey(buf: Uint8Array, offset: number): string {
   return new PublicKey(buf.subarray(offset, offset + 32)).toBase58();
 }
 
@@ -106,10 +106,19 @@ export const listPositions = async (
     return accounts
       .filter((a) => {
         // Basic size guard — Position accounts should be large enough
-        return a.account.data.length >= OFF_BORROWING_FACTOR + 16;
+        if (a.account.data.length < OFF_BORROWING_FACTOR + 16) return false;
+        const buf = new Uint8Array(a.account.data);
+        const kind = buf[OFF_KIND];
+        if (kind !== 1 && kind !== 2) {
+          console.warn(
+            `[listPositions] skipping account ${a.pubkey.toBase58()} due to unknown kind: ${kind}`,
+          );
+          return false;
+        }
+        return true;
       })
       .map((a) => {
-        const buf = a.account.data as Buffer;
+        const buf = new Uint8Array(a.account.data);
         const kind = buf[OFF_KIND];
         const ownerStr = readPubkey(buf, OFF_OWNER);
         const marketToken = readPubkey(buf, OFF_MARKET_TOKEN);
@@ -119,7 +128,8 @@ export const listPositions = async (
         const collateralAmount = readU128(buf, OFF_COLLATERAL_AMOUNT);
         const sizeInUsd = readU128(buf, OFF_SIZE_IN_USD);
         const borrowingFactor = readU128(buf, OFF_BORROWING_FACTOR);
-        const increasedAt = Number(buf.readBigInt64LE(OFF_INCREASED_AT));
+        const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+        const increasedAt = Number(view.getBigInt64(OFF_INCREASED_AT, true));
 
         // PositionKind: 1 = Long, 2 = Short (from on-chain enum)
         const side: "long" | "short" = kind === 2 ? "short" : "long";

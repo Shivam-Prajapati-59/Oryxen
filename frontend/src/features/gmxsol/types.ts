@@ -34,11 +34,11 @@ export interface CreateOrderFormData {
   /** Pay / collateral token amount (raw token amount string) */
   amount: string;
   /** Trigger price for limit / stop-loss orders (optional, raw bigint string) */
-  triggerPrice: string;
+  triggerPrice?: string;
   /** Take-profit price (optional, raw bigint string) */
-  takeProfitPrice: string;
+  takeProfitPrice?: string;
   /** Stop-loss price (optional, raw bigint string) */
-  stopLossPrice: string;
+  stopLossPrice?: string;
 }
 
 // ─── Deposit Form ───────────────────────────────────────────────────

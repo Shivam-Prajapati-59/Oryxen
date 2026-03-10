@@ -20,8 +20,9 @@ import {
 import Image from "next/image";
 import { useProtocol } from "@/features/protocol-adapter/ProtocolContext";
 import { useDriftContext } from "@/features/drift/DriftContext";
+import { useGmxsolContext } from "@/features/gmxsol/GmxsolContext";
 import type { ExecuteTradeParams, TradeDirection, OrderVariant } from "@/features/drift/types";
-import type { ProtocolName } from "@/features/protocol-adapter/types";
+import type { ProtocolName, OrderType as GenericOrderType } from "@/features/protocol-adapter/types";
 import { toast } from "sonner";
 
 // Map dropdown display names to internal protocol names
@@ -32,12 +33,19 @@ const PROTOCOL_NAME_MAP: Record<string, ProtocolName | null> = {
 
 const DISPLAY_NAME_MAP: Record<string, string> = {
     drift: "Drift",
-    Gmxsol: "GMXSol"
+    GMXSol: "GMXSol"
 };
 
 interface OrderPanelProps {
     baseSymbol: string
     marketIndex: number
+}
+
+/** Scale a decimal string (e.g. "155.50") to a BigInt with `decimals` fractional digits. */
+function scaleDecimalToBigInt(value: string, decimals: number): string {
+    const [intPart, fracPart = ""] = value.split(".");
+    const paddedFrac = fracPart.slice(0, decimals).padEnd(decimals, "0");
+    return BigInt(intPart + paddedFrac).toString();
 }
 
 const TradingOrderPanel = ({ baseSymbol, marketIndex }: OrderPanelProps) => {
@@ -50,8 +58,9 @@ const TradingOrderPanel = ({ baseSymbol, marketIndex }: OrderPanelProps) => {
     const { prices } = usePriceFeed([baseSymbol]);
 
     // Protocol integration
-    const { activeProtocol, setProtocol } = useProtocol();
+    const { activeProtocol, adapter, setProtocol } = useProtocol();
     const drift = useDriftContext();
+    const gmsol = useGmxsolContext();
     const selectedProtocol = activeProtocol
         ? (DISPLAY_NAME_MAP[activeProtocol] ?? "All")
         : "All";
@@ -75,14 +84,21 @@ const TradingOrderPanel = ({ baseSymbol, marketIndex }: OrderPanelProps) => {
     // Drift is usable for data/trading when initialized (regardless of activeProtocol)
     // This lets us show estimates even when "All" is selected
     const isDriftReady = drift.isInitialized && drift.userAccountExists === true;
+    const isGmxsolReady = !!gmsol.privyWallet && !!gmsol.program;
 
-    // --- Drift-derived reactive data ---
-    const isProtocolReady = activeProtocol === "drift" && isDriftReady;
+    // --- Protocol-derived reactive data ---
+    const isProtocolReady =
+        (activeProtocol === "drift" && isDriftReady) ||
+        (activeProtocol === "GMXSol" && isGmxsolReady);
 
     const freeCollateral = useMemo(() => {
+        if (activeProtocol === "GMXSol") {
+            // GMSOL sends collateral per-order from wallet; no central pool
+            return 0;
+        }
         if (!isDriftReady) return 0;
         return drift.getFreeCollateral() ?? 0;
-    }, [isDriftReady, drift.getFreeCollateral]);
+    }, [activeProtocol, isDriftReady, drift.getFreeCollateral]);
 
     const marketInfo = useMemo(() => {
         if (!isDriftReady) return null;
@@ -134,6 +150,119 @@ const TradingOrderPanel = ({ baseSymbol, marketIndex }: OrderPanelProps) => {
         setProtocol(protocolName);
     }, [setProtocol]);
 
+    /** Drift-specific trade execution */
+    const handleDriftTrade = useCallback(async (direction: TradeDirection, baseAmount: number) => {
+        const leveragedAmount = baseAmount * leverage;
+
+        const affordCheck = drift.canAffordTrade(leveragedAmount, marketIndex);
+        if (!affordCheck.canAfford) {
+            toast.error(affordCheck.reason ?? "Insufficient collateral for this trade.");
+            return;
+        }
+
+        const params: ExecuteTradeParams = {
+            marketIndex,
+            direction,
+            baseAssetAmount: leveragedAmount,
+            orderVariant: orderType as OrderVariant,
+            reduceOnly,
+            postOnly: orderType === "limit" ? postOnly : false,
+            subAccountId: 0,
+        };
+
+        if (orderType === "limit") {
+            params.price = parseFloat(limitPrice);
+        }
+
+        const result = await drift.placeOrder(params);
+        const explorerUrl = result?.explorerUrl ?? null;
+        setLastTxUrl(explorerUrl);
+        toast.success("Order placed on Drift!", {
+            description: explorerUrl ? "View transaction on Solscan" : undefined,
+            action: explorerUrl ? {
+                label: "Open",
+                onClick: () => window.open(explorerUrl, "_blank"),
+            } : undefined,
+            duration: 8000,
+        });
+    }, [leverage, drift, marketIndex, orderType, limitPrice, reduceOnly, postOnly]);
+
+    /** GMXSol-specific trade execution */
+    const handleGmxsolTrade = useCallback(async (direction: TradeDirection, baseAmount: number) => {
+        if (!gmsol.markets.length) {
+            toast.error("GMSOL markets not loaded yet. Please wait...");
+            return;
+        }
+
+        // Find the best matching market
+        const market = (marketIndex !== undefined && marketIndex >= 0 && marketIndex < gmsol.markets.length)
+            ? gmsol.markets[marketIndex]
+            : gmsol.markets.find(m => {
+                const name = (m.name || "").split("/")[0].trim().toUpperCase();
+                return name === baseSymbol.toUpperCase();
+            }) || gmsol.markets[0];
+
+        if (!market) {
+            toast.error("No GMSOL market available.");
+            return;
+        }
+
+        const isLong = direction === "long";
+        const collateralToken = isLong ? market.longToken : market.shortToken;
+
+        if (!currentPrice || currentPrice <= 0) {
+            toast.error("Invalid market price.");
+            return;
+        }
+
+        // Decimal-safe scaling: convert floats to integer strings, multiply as BigInt
+        const scaleAndMultiply = (a: number, b: number, c: number, decimals: number): string => {
+            // Scale each value to a fixed-point integer to avoid float * 1e30 overflow
+            const precision = 1e9;
+            const aBig = BigInt(Math.round(a * precision));
+            const bBig = BigInt(Math.round(b));
+            const cBig = BigInt(Math.round(c * precision));
+            // aBig * bBig * cBig = value * precision^2, then scale to target decimals
+            const raw = (aBig * bBig * cBig * BigInt(10) ** BigInt(decimals))
+                / (BigInt(precision) * BigInt(precision));
+            return raw.toString();
+        };
+
+        const sizeDeltaUsd = scaleAndMultiply(baseAmount, leverage, currentPrice, 30);
+        const rawAmount = BigInt(Math.round(baseAmount * 1e9)).toString();
+
+        const orderKind = orderType === "limit" ? "LimitIncrease" : "MarketIncrease";
+        const triggerPrice = orderType === "limit" && limitPrice
+            ? scaleDecimalToBigInt(limitPrice, 30)
+            : "";
+
+        const sig = await gmsol.submitOrder({
+            marketToken: market.marketTokenMint,
+            collateralToken,
+            longToken: market.longToken,
+            shortToken: market.shortToken,
+            isLong,
+            orderKind: orderKind as any,
+            sizeDeltaUsd,
+            amount: rawAmount,
+            triggerPrice,
+            takeProfitPrice: "",
+            stopLossPrice: "",
+        });
+
+        const cluster = process.env.NEXT_PUBLIC_GMSOL_NETWORK || "devnet";
+        const explorerUrl = sig ? `https://solscan.io/tx/${sig}?cluster=${cluster}` : null;
+        setLastTxUrl(explorerUrl);
+        toast.success("Order placed on GMXSol!", {
+            description: explorerUrl ? "View transaction on Solscan" : undefined,
+            action: explorerUrl ? {
+                label: "Open",
+                onClick: () => window.open(explorerUrl, "_blank"),
+            } : undefined,
+            duration: 8000,
+        });
+    }, [gmsol, leverage, currentPrice, orderType, limitPrice, marketIndex, baseSymbol]);
+
     const handleTrade = useCallback(async (direction: TradeDirection) => {
         if (!isProtocolReady) {
             toast.error("Protocol not ready. Please connect your wallet and select a protocol.");
@@ -156,15 +285,6 @@ const TradingOrderPanel = ({ baseSymbol, marketIndex }: OrderPanelProps) => {
             baseAmount = amount / currentPrice;
         }
 
-        const leveragedAmount = baseAmount * leverage;
-
-        // Pre-trade affordability check
-        const affordCheck = drift.canAffordTrade(leveragedAmount, marketIndex);
-        if (!affordCheck.canAfford) {
-            toast.error(affordCheck.reason ?? "Insufficient collateral for this trade.");
-            return;
-        }
-
         if (orderType === "limit") {
             const price = parseFloat(limitPrice);
             if (isNaN(price) || price <= 0) {
@@ -173,41 +293,24 @@ const TradingOrderPanel = ({ baseSymbol, marketIndex }: OrderPanelProps) => {
             }
         }
 
-        const params: ExecuteTradeParams = {
-            marketIndex,
-            direction,
-            baseAssetAmount: leveragedAmount,
-            orderVariant: orderType as OrderVariant,
-            reduceOnly,
-            postOnly: orderType === "limit" ? postOnly : false,
-            subAccountId: 0,
-        };
-
-        if (orderType === "limit") {
-            params.price = parseFloat(limitPrice);
-        }
-
         setIsTrading(true);
         setLastTxUrl(null);
+
         try {
-            const result = await drift.placeOrder(params);
-            const explorerUrl = result?.explorerUrl ?? null;
-            setLastTxUrl(explorerUrl);
-            toast.success("Order placed!", {
-                description: explorerUrl ? "View transaction on Solscan" : undefined,
-                action: explorerUrl ? {
-                    label: "Open",
-                    onClick: () => window.open(explorerUrl, "_blank"),
-                } : undefined,
-                duration: 8000,
-            });
+            if (activeProtocol === "GMXSol") {
+                // ── GMXSol trade path ──
+                await handleGmxsolTrade(direction, baseAmount);
+            } else {
+                // ── Drift trade path ──
+                await handleDriftTrade(direction, baseAmount);
+            }
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             toast.error(`Trade failed: ${message}`);
         } finally {
             setIsTrading(false);
         }
-    }, [isProtocolReady, tradeAmount, selectedToken, currentPrice, leverage, drift, marketIndex, orderType, limitPrice, reduceOnly, postOnly]);
+    }, [isProtocolReady, tradeAmount, selectedToken, currentPrice, activeProtocol, orderType, limitPrice, handleDriftTrade, handleGmxsolTrade]);
 
     return (
         <div className="w-full space-y-4 text-sm border p-2">
@@ -261,9 +364,13 @@ const TradingOrderPanel = ({ baseSymbol, marketIndex }: OrderPanelProps) => {
                     </div>
                     {/* AVAILABLE MARGIN */}
                     <div className="space-y-1 text-end">
-                        <span className="text-xs text-muted-foreground">Avail Margin</span>
+                        <span className="text-xs text-muted-foreground">
+                            {activeProtocol === "GMXSol" ? "Protocol" : "Avail Margin"}
+                        </span>
                         <div className="text-lg font-medium text-foreground font-ibm">
-                            {isProtocolReady ? formatPrice(freeCollateral) : "-"}
+                            {activeProtocol === "GMXSol"
+                                ? (isGmxsolReady ? "GMXSol Ready" : "Not Connected")
+                                : isProtocolReady ? formatPrice(freeCollateral) : "-"}
                         </div>
                     </div>
                 </div>

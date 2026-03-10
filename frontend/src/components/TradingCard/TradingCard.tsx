@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import TradingCardHeader from "./TradingCardHeader";
 import TradingViewWidget from "../custom/TradingViewWidget";
-import TradingCardFooter from "./TardingCardFooter";
+import TradingCardFooter from "./TradingCardFooter";
 import TradingOrderPanel from "./TradingOrderPanel";
 import TradingHeaderDialog from "./TradingHeaderDialog";
 import { PerpFundingRate, useFundingRates } from "@/hooks/useFundingRates";

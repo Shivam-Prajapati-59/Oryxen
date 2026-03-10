@@ -167,7 +167,7 @@
         },
         {
           "name": "receiver_vault",
-          "docs": ["Reciever vault."],
+          "docs": ["Receiver vault."],
           "writable": true,
           "pda": {
             "seeds": [

@@ -3,15 +3,21 @@
  * Must be dynamically imported in Next.js to avoid SSR issues.
  */
 
-let _sdk: typeof import("@gmsol-labs/gmsol-sdk") | null = null;
+let _sdkPromise: Promise<typeof import("@gmsol-labs/gmsol-sdk")> | null = null;
 
-export async function getSDK() {
-  if (_sdk) return _sdk;
-  const sdk = await import("@gmsol-labs/gmsol-sdk");
-  // Enable readable WASM panic messages (must be called once before any SDK use)
-  sdk.solana_program_init();
-  _sdk = sdk;
-  return _sdk;
+export function getSDK() {
+  if (!_sdkPromise) {
+    _sdkPromise = import("@gmsol-labs/gmsol-sdk").then((sdk) => {
+      // Enable readable WASM panic messages (must be called once before any SDK use)
+      sdk.solana_program_init();
+      return sdk;
+    }).catch((err) => {
+      // Clear the cached promise so future calls can retry
+      _sdkPromise = null;
+      throw err;
+    });
+  }
+  return _sdkPromise;
 }
 
 /**

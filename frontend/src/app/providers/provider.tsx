@@ -7,11 +7,14 @@ import PrivyProviders from "./privyprovider";
 import { Toaster } from "@/components/ui/sonner";
 import { ProtocolProvider } from "@/features/protocol-adapter/ProtocolContext";
 import { DriftProvider } from "@/features/drift/DriftContext";
+import { GmxsolProvider } from "@/features/gmxsol/GmxsolContext";
 import { useDriftAdapter } from "@/features/drift/hooks/useDriftAdapter";
+import { useGmxsolAdapter } from "@/features/gmxsol/hooks/useGmxsolAdapter";
 
-/** Registers all protocol adapters — must be inside ProtocolProvider & DriftProvider */
+/** Registers all protocol adapters — must be inside ProtocolProvider & all protocol providers */
 function ProtocolInitializer() {
     useDriftAdapter();
+    useGmxsolAdapter();
     return null;
 }
 
@@ -38,8 +41,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
                 >
                     <ProtocolProvider>
                         <DriftProvider>
-                            <ProtocolInitializer />
-                            {children}
+                            <GmxsolProvider>
+                                <ProtocolInitializer />
+                                {children}
+                            </GmxsolProvider>
                         </DriftProvider>
                     </ProtocolProvider>
                     <Toaster />

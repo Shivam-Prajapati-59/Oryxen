@@ -1,5 +1,4 @@
 import {
-  Connection,
   PublicKey,
   SystemProgram,
   TransactionInstruction,
@@ -16,11 +15,10 @@ import {
  * Generates instructions to wrap native SOL into WSOL.
  * Creates the ATA if it doesn't exist, transfers SOL, and syncs the native balance.
  */
-export const getWrapSolInstructions = async (
-  connection: Connection,
+export const getWrapSolInstructions = (
   owner: PublicKey,
   amountLamports: number,
-): Promise<TransactionInstruction[]> => {
+): TransactionInstruction[] => {
   const instructions: TransactionInstruction[] = [];
   const wsolAta = getAssociatedTokenAddressSync(NATIVE_MINT, owner);
 

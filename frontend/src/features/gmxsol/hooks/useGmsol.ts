@@ -10,7 +10,7 @@
 
 import { isValidSolanaAddress, createPrivyWalletAdapter } from "@/lib/solana";
 import { useWallets } from "@privy-io/react-auth/solana";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   MarketInfo,
   CreateOrderFormData,
@@ -54,6 +54,9 @@ export const useGmsol = () => {
   const [orders, setOrders] = useState<OrderInfo[]>([]);
   const [txSignatures, setTxSignatures] = useState<string[]>([]);
 
+  // Mutex to prevent concurrent submit* operations from overwriting shared state
+  const pendingOpRef = useRef(false);
+
   // ── Privy Solana wallet ────────────────────────────────────────────
   const privyWallet = useMemo(
     () => wallets.find((w) => isValidSolanaAddress(w.address)) ?? null,
@@ -61,7 +64,7 @@ export const useGmsol = () => {
   );
 
   const connection = useMemo(
-    () => new Connection(GMSOL_RPC_URL, "processed"),
+    () => new Connection(GMSOL_RPC_URL, "confirmed"),
     [],
   );
 
@@ -70,7 +73,7 @@ export const useGmsol = () => {
       ? new AnchorProvider(
           connection,
           createPrivyWalletAdapter(privyWallet, GMSOL_CHAIN_PREFIX) as any,
-          { commitment: "processed", skipPreflight: true },
+          { commitment: "confirmed", skipPreflight: true },
         )
       : new AnchorProvider(
           connection,
@@ -83,7 +86,7 @@ export const useGmsol = () => {
               throw new Error("Wallet not connected");
             },
           } as any,
-          { commitment: "processed", skipPreflight: true },
+          { commitment: "confirmed", skipPreflight: true },
         );
 
     return new Program<GmsolStore>(IDL as any, provider);
@@ -118,6 +121,11 @@ export const useGmsol = () => {
       setOrders(fetchedOrders);
     } catch (err) {
       console.error("Failed to fetch positions and orders", err);
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to fetch positions and orders",
+      );
     }
   }, [program, privyWallet]);
 
@@ -160,12 +168,12 @@ export const useGmsol = () => {
         for (const signed of signedTransactions) {
           const sig = await connection.sendRawTransaction(signed.serialize(), {
             skipPreflight: false,
-            preflightCommitment: "processed",
+            preflightCommitment: "confirmed",
           });
 
           const confirmation = await connection.confirmTransaction(
             { signature: sig, blockhash, lastValidBlockHeight },
-            "processed",
+            "confirmed",
           );
 
           // Check for on-chain errors (confirmTransaction resolves even for
@@ -219,7 +227,12 @@ export const useGmsol = () => {
         setError("Please connect a Solana wallet first.");
         return;
       }
+      if (pendingOpRef.current) {
+        setError("Another operation is in progress. Please wait.");
+        return;
+      }
 
+      pendingOpRef.current = true;
       setIsLoading(true);
       setError(null);
       setTxSignatures([]);
@@ -320,11 +333,14 @@ export const useGmsol = () => {
         console.log("Order transactions sent:", sigs);
 
         await fetchPositionsAndOrders();
+        return sigs;
       } catch (err: unknown) {
         console.error(err);
         setError(err instanceof Error ? err.message : "Failed to create order");
+        throw err;
       } finally {
         setIsLoading(false);
+        pendingOpRef.current = false;
       }
     },
     [privyWallet, connection, signAndSendTransactions, fetchPositionsAndOrders],
@@ -340,7 +356,12 @@ export const useGmsol = () => {
         setError("Please connect a Solana wallet first.");
         return;
       }
+      if (pendingOpRef.current) {
+        setError("Another operation is in progress. Please wait.");
+        return;
+      }
 
+      pendingOpRef.current = true;
       setIsLoading(true);
       setError(null);
       setTxSignatures([]);
@@ -383,11 +404,14 @@ export const useGmsol = () => {
         console.log("Close order transactions sent:", sigs);
 
         await fetchPositionsAndOrders();
+        return sigs;
       } catch (err: unknown) {
         console.error(err);
         setError(err instanceof Error ? err.message : "Failed to close order");
+        throw err;
       } finally {
         setIsLoading(false);
+        pendingOpRef.current = false;
       }
     },
     [
@@ -412,7 +436,12 @@ export const useGmsol = () => {
         setError("Please connect a Solana wallet first.");
         return;
       }
+      if (pendingOpRef.current) {
+        setError("Another operation is in progress. Please wait.");
+        return;
+      }
 
+      pendingOpRef.current = true;
       setIsLoading(true);
       setError(null);
       setTxSignatures([]);
@@ -455,11 +484,14 @@ export const useGmsol = () => {
         console.log("Update order transactions sent:", sigs);
 
         await fetchPositionsAndOrders();
+        return sigs;
       } catch (err: unknown) {
         console.error(err);
         setError(err instanceof Error ? err.message : "Failed to update order");
+        throw err;
       } finally {
         setIsLoading(false);
+        pendingOpRef.current = false;
       }
     },
     [
@@ -481,7 +513,12 @@ export const useGmsol = () => {
         setError("Please connect a Solana wallet first.");
         return;
       }
+      if (pendingOpRef.current) {
+        setError("Another operation is in progress. Please wait.");
+        return;
+      }
 
+      pendingOpRef.current = true;
       setIsLoading(true);
       setError(null);
       setTxSignatures([]);
@@ -527,13 +564,16 @@ export const useGmsol = () => {
         const sigs = await signAndSendTransactions(serializedTxns);
         setTxSignatures(sigs);
         console.log("Deposit transactions sent:", sigs);
+        return sigs;
       } catch (err: unknown) {
         console.error(err);
         setError(
           err instanceof Error ? err.message : "Failed to create deposit",
         );
+        throw err;
       } finally {
         setIsLoading(false);
+        pendingOpRef.current = false;
       }
     },
     [privyWallet, connection, signAndSendTransactions],
@@ -549,7 +589,12 @@ export const useGmsol = () => {
         setError("Please connect a Solana wallet first.");
         return;
       }
+      if (pendingOpRef.current) {
+        setError("Another operation is in progress. Please wait.");
+        return;
+      }
 
+      pendingOpRef.current = true;
       setIsLoading(true);
       setError(null);
       setTxSignatures([]);
@@ -590,13 +635,16 @@ export const useGmsol = () => {
         const sigs = await signAndSendTransactions(serializedTxns);
         setTxSignatures(sigs);
         console.log("Withdrawal transactions sent:", sigs);
+        return sigs;
       } catch (err: unknown) {
         console.error(err);
         setError(
           err instanceof Error ? err.message : "Failed to create withdrawal",
         );
+        throw err;
       } finally {
         setIsLoading(false);
+        pendingOpRef.current = false;
       }
     },
     [privyWallet, connection, signAndSendTransactions],
@@ -612,7 +660,12 @@ export const useGmsol = () => {
         setError("Please connect a Solana wallet first.");
         return;
       }
+      if (pendingOpRef.current) {
+        setError("Another operation is in progress. Please wait.");
+        return;
+      }
 
+      pendingOpRef.current = true;
       setIsLoading(true);
       setError(null);
       setTxSignatures([]);
@@ -637,11 +690,14 @@ export const useGmsol = () => {
         const sigs = await signAndSendTransactions(serializedTxns);
         setTxSignatures(sigs);
         console.log("Shift transactions sent:", sigs);
+        return sigs;
       } catch (err: unknown) {
         console.error(err);
         setError(err instanceof Error ? err.message : "Failed to create shift");
+        throw err;
       } finally {
         setIsLoading(false);
+        pendingOpRef.current = false;
       }
     },
     [privyWallet, connection, signAndSendTransactions],
@@ -657,7 +713,12 @@ export const useGmsol = () => {
         setError("Please connect a Solana wallet first.");
         return;
       }
+      if (pendingOpRef.current) {
+        setError("Another operation is in progress. Please wait.");
+        return;
+      }
 
+      pendingOpRef.current = true;
       setIsLoading(true);
       setError(null);
       setTxSignatures([]);
@@ -777,13 +838,16 @@ export const useGmsol = () => {
         console.log("Close position transactions sent:", sigs);
 
         await fetchPositionsAndOrders();
+        return sigs;
       } catch (err: unknown) {
         console.error("[submitClosePosition] error:", err);
         setError(
           err instanceof Error ? err.message : "Failed to close position",
         );
+        throw err;
       } finally {
         setIsLoading(false);
+        pendingOpRef.current = false;
       }
     },
     [
