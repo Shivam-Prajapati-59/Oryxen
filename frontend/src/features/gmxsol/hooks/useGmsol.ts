@@ -41,8 +41,8 @@ import type {
 } from "@gmsol-labs/gmsol-sdk";
 import { Connection, PublicKey, VersionedTransaction } from "@solana/web3.js";
 import { AnchorProvider, Program } from "@coral-xyz/anchor";
-import { IDL } from "@/lib/idl/gmsol/gmsol-store-idl";
-import { GmsolStore } from "@/lib/idl/gmsol/gmsol_store_type";
+import { IDL } from "@/lib/idl/gmxsol/gmsol-store-idl";
+import { GmsolStore } from "@/lib/idl/gmxsol/gmsol_store_type";
 import { GMSOL_RPC_URL, GMSOL_CHAIN_PREFIX } from "../constants";
 
 export const useGmsol = () => {

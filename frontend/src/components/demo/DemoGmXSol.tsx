@@ -1,13 +1,13 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
-import { useGmsol } from "@/features/gmsol/hooks/useGmsol";
+import { useGmsol } from "@/features/gmxsol/hooks/useGmsol";
 import type {
     CreateOrderFormData,
     CreateDepositFormData,
     CreateWithdrawalFormData,
     CreateShiftFormData,
-} from "@/features/gmsol/types";
+} from "@/features/gmxsol/types";
 import type { CreateOrderKind } from "@gmsol-labs/gmsol-sdk";
 
 // ─── Precision Constants (from gmsol-sdk / GMX-Solana) ────────────────

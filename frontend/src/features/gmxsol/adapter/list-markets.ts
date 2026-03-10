@@ -1,5 +1,5 @@
 import { Program } from "@coral-xyz/anchor";
-import { GmsolStore } from "@/lib/idl/gmsol/gmsol_store_type";
+import { GmsolStore } from "@/lib/idl/gmxsol/gmsol_store_type";
 
 export const listMarkets = async (program: Program<GmsolStore>) => {
   // Fetch all Market accounts from the program

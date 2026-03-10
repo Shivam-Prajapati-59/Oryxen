@@ -1,6 +1,6 @@
 // frontend/src/features/protocol-adapter/types.ts
 
-export type ProtocolName = "drift" | "hyperliquid" | "raydium" | "jupiter";
+export type ProtocolName = "drift" | "GMXSol";
 
 export type OrderType = "market" | "limit" | "takeProfit" | "stopLimit";
 export type TradeDirection = "long" | "short";

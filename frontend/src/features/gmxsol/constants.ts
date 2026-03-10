@@ -2,7 +2,7 @@
 
 import { SOLANA_DEVNET_RPC, SOLANA_MAINNET_RPC } from "@/config/env";
 import { PublicKey } from "@solana/web3.js";
-import { GMSOL_STORE_PROGRAM_ID as IDL_PROGRAM_ID } from "@/lib/idl/gmsol/gmsol-store-idl";
+import { GMSOL_STORE_PROGRAM_ID as IDL_PROGRAM_ID } from "@/lib/idl/gmxsol/gmsol-store-idl";
 
 /** Toggle via NEXT_PUBLIC_GMSOL_NETWORK=mainnet in .env (default: devnet) */
 export const GMSOL_NETWORK: "devnet" | "mainnet" =

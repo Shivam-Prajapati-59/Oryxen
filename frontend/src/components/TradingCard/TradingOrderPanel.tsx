@@ -23,21 +23,16 @@ import { useDriftContext } from "@/features/drift/DriftContext";
 import type { ExecuteTradeParams, TradeDirection, OrderVariant } from "@/features/drift/types";
 import type { ProtocolName } from "@/features/protocol-adapter/types";
 import { toast } from "sonner";
-import { ExternalLink } from "lucide-react";
 
 // Map dropdown display names to internal protocol names
 const PROTOCOL_NAME_MAP: Record<string, ProtocolName | null> = {
-    "All": null,
     "Drift": "drift",
-    "Jup Perps": null,
-    "Flash": null,
+    "GMXSol": "GMXSol",
 };
 
 const DISPLAY_NAME_MAP: Record<string, string> = {
     drift: "Drift",
-    hyperliquid: "Hyperliquid",
-    raydium: "Raydium",
-    jupiter: "Jup Perps",
+    Gmxsol: "GMXSol"
 };
 
 interface OrderPanelProps {

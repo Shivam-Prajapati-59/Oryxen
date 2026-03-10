@@ -1,6 +1,6 @@
 import { Program } from "@coral-xyz/anchor";
 import { PublicKey } from "@solana/web3.js";
-import { GmsolStore } from "@/lib/idl/gmsol/gmsol_store_type";
+import { GmsolStore } from "@/lib/idl/gmxsol/gmsol_store_type";
 
 /** Action state enum (from the actionHeader struct) */
 const ACTION_STATES: Record<number, string> = {

@@ -1,6 +1,6 @@
 import { Program } from "@coral-xyz/anchor";
 import { Connection, PublicKey } from "@solana/web3.js";
-import { GmsolStore } from "@/lib/idl/gmsol/gmsol_store_type";
+import { GmsolStore } from "@/lib/idl/gmxsol/gmsol_store_type";
 
 export interface PositionInfo {
   address: string;
