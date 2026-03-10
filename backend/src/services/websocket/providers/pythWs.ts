@@ -8,13 +8,22 @@ interface PriceData {
 
 export class PythWebSocket {
   private ws: WebSocket | null = null;
-  private reconnectTimeout: NodeJS.Timeout | null = null;
   private isManualDisconnect: boolean = false;
 
   private idToSymbolMap: Map<string, string> = new Map();
   private symbolToIdMap: Map<string, string> = new Map();
   private subscribedSymbols: Set<string> = new Set();
   private onPriceUpdate?: (data: PriceData) => void;
+
+  // Reconnect with exponential backoff
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectAttempt = 0;
+  private static readonly BASE_DELAY = 1_000;   // 1 s
+  private static readonly MAX_DELAY  = 30_000;  // 30 s
+
+  // Heartbeat to keep Hermes WS alive
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private static readonly HEARTBEAT_INTERVAL = 20_000; // 20 s
 
   constructor(onPriceUpdate?: (data: PriceData) => void) {
     this.onPriceUpdate = onPriceUpdate;
@@ -87,6 +96,8 @@ export class PythWebSocket {
 
     this.ws.on("open", () => {
       console.log("✅ [Pyth WS] Connected to Pyth Network");
+      this.reconnectAttempt = 0;
+      this.startHeartbeat();
       if (this.subscribedSymbols.size > 0) {
         const symbolsToResubscribe = Array.from(this.subscribedSymbols);
         // Clear subscribed symbols so subscribeToSymbols will process them
@@ -105,12 +116,13 @@ export class PythWebSocket {
     });
 
     this.ws.on("error", (error) => {
-      console.error("❌ [Pyth WS] WebSocket error:", error);
+      console.error("❌ [Pyth WS] WebSocket error:", error.message);
     });
 
     this.ws.on("close", () => {
       console.log("❌ [Pyth WS] Disconnected from Pyth Network");
-      this.cleanup();
+      this.stopHeartbeat();
+      this.ws = null;
       if (!this.isManualDisconnect) this.scheduleReconnect();
     });
   }
@@ -196,12 +208,47 @@ export class PythWebSocket {
   }
 
   private cleanup() {
-    if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
+    this.stopHeartbeat();
+    this.clearReconnectTimer();
     this.ws = null;
   }
 
   private scheduleReconnect() {
-    this.reconnectTimeout = setTimeout(() => this.connect(), 5000);
+    if (this.reconnectTimer || this.isManualDisconnect) return;
+    const base = Math.min(
+      PythWebSocket.BASE_DELAY * Math.pow(2, this.reconnectAttempt),
+      PythWebSocket.MAX_DELAY,
+    );
+    const jitter = base * (0.75 + Math.random() * 0.5);
+    this.reconnectAttempt++;
+    console.log(`[Pyth WS] Reconnecting in ${Math.round(jitter)}ms (attempt ${this.reconnectAttempt})`);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.connect();
+    }, jitter);
+  }
+
+  private clearReconnectTimer() {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+  }
+
+  private startHeartbeat() {
+    this.stopHeartbeat();
+    this.heartbeatTimer = setInterval(() => {
+      if (this.ws?.readyState === WebSocket.OPEN) {
+        this.ws.ping();
+      }
+    }, PythWebSocket.HEARTBEAT_INTERVAL);
+  }
+
+  private stopHeartbeat() {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
   }
 
   disconnect() {

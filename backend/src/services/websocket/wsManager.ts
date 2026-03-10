@@ -23,7 +23,6 @@ export class WebSocketManager {
   }
 
   handleWebSocket() {
-    const manager = this; // Closure reference
     return {
       message: async (
         ws: ServerWebSocket<ClientData>,
@@ -31,6 +30,12 @@ export class WebSocketManager {
       ) => {
         try {
           const data = JSON.parse(message.toString());
+
+          // Respond to client heartbeat pings
+          if (data.type === "ping") {
+            ws.send(JSON.stringify({ type: "pong" }));
+            return;
+          }
 
           if (data.type === "subscribe" && Array.isArray(data.symbols)) {
             const symbols = data.symbols.map((s: string) =>

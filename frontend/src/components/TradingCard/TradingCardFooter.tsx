@@ -194,7 +194,7 @@ const TradingCardFooter = () => {
         <div className="w-full border overflow-hidden">
             <Tabs defaultValue="positions" className="w-full">
                 {/* TAB HEADERS */}
-                <TabsList className="w-full justify-start rounded-none border-b bg-transparent p-0">
+                <TabsList className="w-full justify-start rounded-none border-b bg-transparent p-1">
                     <TabsTrigger
                         value="positions"
                         className="rounded-none data-[state=active]:bg-accent"
@@ -245,9 +245,9 @@ const TradingCardFooter = () => {
                                 </thead>
                                 <tbody>
                                     {allPositions.map((pos, i) => (
-                                        <tr key={`${pos.protocol}-${pos.marketIndex}-${i}`} className="border-b border-border/50 hover:bg-accent/30">
+                                        <tr key={`${pos.protocol}-${pos.marketIndex}-${i}`} className="border-b border-border/50 hover:bg-accent/30 font-ibm">
                                             <td className="p-2 font-medium">{pos.marketSymbol}</td>
-                                            <td className="p-2">
+                                            <td className="p-1">
                                                 <Badge variant="outline" className={
                                                     pos.side === "long"
                                                         ? "text-emerald-500 border-emerald-500/30"
@@ -267,7 +267,7 @@ const TradingCardFooter = () => {
                                                 {pos.liquidationPrice ? formatUsd(pos.liquidationPrice) : "-"}
                                             </td>
                                             <td className="p-2">
-                                                <Badge variant="secondary" className="text-[10px]">
+                                                <Badge variant="outline" className="text-[10px]">
                                                     {pos.protocol === "drift" ? "Drift" : "GMXSol"}
                                                 </Badge>
                                             </td>
@@ -287,7 +287,7 @@ const TradingCardFooter = () => {
                         </div>
                     ) : (
                         <div className="overflow-x-auto">
-                            <table className="w-full text-xs">
+                            <table className="w-full text-sm">
                                 <thead>
                                     <tr className="border-b text-muted-foreground">
                                         <th className="p-2 text-left font-medium">Market</th>
