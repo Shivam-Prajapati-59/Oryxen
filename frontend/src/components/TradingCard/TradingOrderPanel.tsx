@@ -152,7 +152,19 @@ const TradingOrderPanel = ({ baseSymbol, marketIndex }: OrderPanelProps) => {
 
     /** Drift-specific trade execution */
     const handleDriftTrade = useCallback(async (direction: TradeDirection, baseAmount: number) => {
-        const leveragedAmount = baseAmount * leverage;
+        // Leveraged amount calculates position size
+        let leveragedAmount = baseAmount * leverage;
+
+        // Drift accepts floating point numbers but JS math can produce scientific notation (e.g. 2e-8) 
+        // which breaks `convertToPerpPrecision` under the hood if it is too small. 
+        // We round to a safe 6 decimals to represent viable step sizes on Solana.
+        leveragedAmount = Number(leveragedAmount.toFixed(6));
+
+        // Prevent placing trivially tiny orders that compile to nanocent precision
+        if (leveragedAmount <= 0.0001) {
+            toast.error("Trade size is too small for a valid position step size.");
+            return;
+        }
 
         const affordCheck = drift.canAffordTrade(leveragedAmount, marketIndex);
         if (!affordCheck.canAfford) {
@@ -174,7 +186,15 @@ const TradingOrderPanel = ({ baseSymbol, marketIndex }: OrderPanelProps) => {
             params.price = parseFloat(limitPrice);
         }
 
+        // console.log("-----------------------------------------");
+        // console.log(`[Drift] Placing ${orderType} order...`);
+        // console.log("[Drift] Params:", params);
+
         const result = await drift.placeOrder(params);
+
+        // console.log("[Drift] Order Result:", result);
+        // console.log("-----------------------------------------");
+
         const explorerUrl = result?.explorerUrl ?? null;
         setLastTxUrl(explorerUrl);
         toast.success("Order placed on Drift!", {
@@ -217,26 +237,34 @@ const TradingOrderPanel = ({ baseSymbol, marketIndex }: OrderPanelProps) => {
 
         // Decimal-safe scaling: convert floats to integer strings, multiply as BigInt
         const scaleAndMultiply = (a: number, b: number, c: number, decimals: number): string => {
-            // Scale each value to a fixed-point integer to avoid float * 1e30 overflow
+            if (isNaN(a) || isNaN(b) || isNaN(c)) return "0";
+
             const precision = 1e9;
             const aBig = BigInt(Math.round(a * precision));
             const bBig = BigInt(Math.round(b));
             const cBig = BigInt(Math.round(c * precision));
+
             // aBig * bBig * cBig = value * precision^2, then scale to target decimals
-            const raw = (aBig * bBig * cBig * BigInt(10) ** BigInt(decimals))
+            const raw = (aBig * bBig * cBig * BigInt(Math.pow(10, decimals)))
                 / (BigInt(precision) * BigInt(precision));
             return raw.toString();
         };
 
-        const sizeDeltaUsd = scaleAndMultiply(baseAmount, leverage, currentPrice, 30);
-        const rawAmount = BigInt(Math.round(baseAmount * 1e9)).toString();
+        const safeBaseAmount = Number(baseAmount.toFixed(6));
+        if (safeBaseAmount <= 0.0001) {
+            toast.error("Trade size is too small for a valid position on GMSOL.");
+            return;
+        }
+
+        const sizeDeltaUsd = scaleAndMultiply(safeBaseAmount, leverage, currentPrice, 30);
+        const rawAmount = BigInt(Math.round(safeBaseAmount * 1e9)).toString();
 
         const orderKind = orderType === "limit" ? "LimitIncrease" : "MarketIncrease";
         const triggerPrice = orderType === "limit" && limitPrice
             ? scaleDecimalToBigInt(limitPrice, 30)
             : "";
 
-        const sig = await gmsol.submitOrder({
+        const orderPayload = {
             marketToken: market.marketTokenMint,
             collateralToken,
             longToken: market.longToken,
@@ -248,7 +276,19 @@ const TradingOrderPanel = ({ baseSymbol, marketIndex }: OrderPanelProps) => {
             triggerPrice,
             takeProfitPrice: "",
             stopLossPrice: "",
-        });
+        };
+
+        console.log("-----------------------------------------");
+        console.log(`[GMXSol] Placing ${orderType} order...`);
+        console.log(`[GMXSol] Trade Input => Base Amount: ${baseAmount}, Safe Base Amount: ${safeBaseAmount}, Leverage: ${leverage}`);
+        console.log(`[GMXSol] Calculated sizeDeltaUsd (scaled 30): ${sizeDeltaUsd}`);
+        console.log(`[GMXSol] Calculated rawAmount (scaled 9): ${rawAmount}`);
+        console.log("[GMXSol] Payload:", orderPayload);
+
+        const sig = await gmsol.submitOrder(orderPayload);
+
+        console.log("[GMXSol] Order Result Tx:", sig);
+        console.log("-----------------------------------------");
 
         const cluster = process.env.NEXT_PUBLIC_GMSOL_NETWORK || "devnet";
         const explorerUrl = sig ? `https://solscan.io/tx/${sig}?cluster=${cluster}` : null;

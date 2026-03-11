@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState, useCallback } from "react";
+import React, { useMemo, useState, useCallback, useEffect } from "react";
 import {
     Tabs,
     TabsContent,
@@ -11,6 +11,7 @@ import { useDriftContext } from "@/features/drift/DriftContext";
 import { useGmxsolContext } from "@/features/gmxsol/GmxsolContext";
 import { useProtocol } from "@/features/protocol-adapter/ProtocolContext";
 import { usePriceFeed } from "@/hooks/usePriceFeed";
+import { getAccountSummary } from "@/features/drift/adapter/positions";
 import type { Position } from "@/features/protocol-adapter/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -165,9 +166,14 @@ const TradingCardFooter = () => {
         return [...driftWithProtocol, ...(gmsolPositions as PositionWithMeta[])];
     }, [activeProtocol, driftPositions, gmsolPositions]);
 
+    useEffect(() => {
+        // console.log("Drift Position Details:", driftPositions);
+        console.log("GMSOL Position Details:", gmsolPositions);
+    }, [driftPositions, gmsolPositions]);
+
     const allOrders = useMemo(() => {
         if (!gmsol.orders.length) return [];
-        // Show GMSOL orders; Drift orders are managed by Drift's own system
+        // Show GMSOL orders; Drift orders are logged separately below
         if (activeProtocol === "drift") return [];
         return gmsol.orders.map((o) => ({
             address: o.address,
@@ -179,6 +185,25 @@ const TradingCardFooter = () => {
             protocol: "GMXSol",
         }));
     }, [activeProtocol, gmsol.orders]);
+
+    useEffect(() => {
+        if (allOrders && allOrders.length > 0) {
+            console.log("-----------------------------------------");
+            console.log("Active / Unfilled Orders (GMSOL):", allOrders);
+            console.log("-----------------------------------------");
+        }
+    }, [allOrders]);
+
+    useEffect(() => {
+        if (isDriftReady && activeProtocol === "drift" && drift.driftClient && drift.user) {
+            const openOrders = getAccountSummary(drift.driftClient, drift.user)?.openOrders || [];
+            if (openOrders.length > 0) {
+                // console.log("-----------------------------------------");
+                // console.log("Drift Open (Unfilled) Orders:", openOrders);
+                // console.log("-----------------------------------------");
+            }
+        }
+    }, [isDriftReady, activeProtocol, drift.driftClient, drift.user]);
 
     const totalPnl = useMemo(() => {
         return allPositions.reduce((sum, p) => sum + (p.unrealizedPnl || 0), 0);
@@ -248,15 +273,17 @@ const TradingCardFooter = () => {
                                         <tr key={`${pos.protocol}-${pos.marketIndex}-${i}`} className="border-b border-border/50 hover:bg-accent/30 font-ibm">
                                             <td className="p-2 font-medium">{pos.marketSymbol}</td>
                                             <td className="p-1">
-                                                <Badge variant="outline" className={
-                                                    pos.side === "long"
+                                                <Badge
+                                                    variant="outline"
+                                                    className={`rounded-none ${pos.side === "long"
                                                         ? "text-emerald-500 border-emerald-500/30"
                                                         : "text-red-500 border-red-500/30"
-                                                }>
+                                                        }`}
+                                                >
                                                     {pos.side === "long" ? "Long" : "Short"}
                                                 </Badge>
                                             </td>
-                                            <td className="p-2 text-right font-mono">{formatUsd(pos.size)}</td>
+                                            <td className="p-2 text-right font-mono">{pos.size}</td>
                                             <td className="p-2 text-right font-mono">{pos.entryPrice ? formatUsd(pos.entryPrice) : "-"}</td>
                                             <td className="p-2 text-right font-mono">{pos.currentPrice ? formatUsd(pos.currentPrice) : "-"}</td>
                                             <td className={`p-2 text-right font-mono ${pos.unrealizedPnl >= 0 ? "text-emerald-500" : "text-red-500"}`}>
@@ -267,7 +294,7 @@ const TradingCardFooter = () => {
                                                 {pos.liquidationPrice ? formatUsd(pos.liquidationPrice) : "-"}
                                             </td>
                                             <td className="p-2">
-                                                <Badge variant="outline" className="text-[10px]">
+                                                <Badge variant="outline" className="text-[12px] rounded-none">
                                                     {pos.protocol === "drift" ? "Drift" : "GMXSol"}
                                                 </Badge>
                                             </td>

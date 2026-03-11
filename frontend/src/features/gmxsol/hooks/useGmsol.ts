@@ -68,37 +68,35 @@ export const useGmsol = () => {
     [],
   );
 
-  const program = useMemo(() => {
-    const provider = privyWallet
-      ? new AnchorProvider(
-          connection,
-          createPrivyWalletAdapter(privyWallet, GMSOL_CHAIN_PREFIX) as any,
-          { commitment: "confirmed", skipPreflight: true },
-        )
-      : new AnchorProvider(
-          connection,
-          {
-            publicKey: PublicKey.default,
-            signTransaction: async () => {
-              throw new Error("Wallet not connected");
-            },
-            signAllTransactions: async () => {
-              throw new Error("Wallet not connected");
-            },
-          } as any,
-          { commitment: "confirmed", skipPreflight: true },
-        );
+  // A completely separate read-only program to avoid recreating the program
+  // (and thus re-triggering the useEffect) when privyWallet reference changes.
+  const readOnlyProgram = useMemo(() => {
+    const readOnlyProvider = new AnchorProvider(
+      connection,
+      {
+        publicKey: PublicKey.default,
+        signTransaction: async () => {
+          throw new Error("Wallet not connected");
+        },
+        signAllTransactions: async () => {
+          throw new Error("Wallet not connected");
+        },
+      } as any,
+      { commitment: "confirmed", skipPreflight: true },
+    );
 
-    return new Program<GmsolStore>(IDL as any, provider);
-  }, [privyWallet, connection]);
+    return new Program<GmsolStore>(IDL as any, readOnlyProvider);
+  }, [connection]);
+
+  const privyWalletAddress = privyWallet?.address;
 
   // ── Fetch markets ──────────────────────────────────────────────────
   const fetchMarkets = useCallback(async () => {
-    if (!program) return;
+    if (!readOnlyProgram) return;
     setIsLoading(true);
     setError(null);
     try {
-      const data = await listMarkets(program);
+      const data = await listMarkets(readOnlyProgram);
       setMarkets(data);
     } catch (err: unknown) {
       console.error(err);
@@ -106,16 +104,16 @@ export const useGmsol = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [program]);
+  }, [readOnlyProgram]);
 
   // ── Fetch user positions and orders ──────────────────────────────
   const fetchPositionsAndOrders = useCallback(async () => {
-    if (!program || !privyWallet) return;
+    if (!readOnlyProgram || !privyWalletAddress) return;
     try {
-      const ownerPublicKey = new PublicKey(privyWallet.address);
+      const ownerPublicKey = new PublicKey(privyWalletAddress);
       const [fetchedPositions, fetchedOrders] = await Promise.all([
-        listPositions(program, ownerPublicKey),
-        listOrders(program, ownerPublicKey),
+        listPositions(readOnlyProgram, ownerPublicKey),
+        listOrders(readOnlyProgram, ownerPublicKey),
       ]);
       setPositions(fetchedPositions);
       setOrders(fetchedOrders);
@@ -127,7 +125,7 @@ export const useGmsol = () => {
           : "Failed to fetch positions and orders",
       );
     }
-  }, [program, privyWallet]);
+  }, [readOnlyProgram, privyWalletAddress]);
 
   useEffect(() => {
     fetchMarkets();
@@ -880,7 +878,7 @@ export const useGmsol = () => {
     submitWithdrawal,
     submitShift,
     // Infra
-    program,
+    program: readOnlyProgram,
     privyWallet,
     connection,
   };

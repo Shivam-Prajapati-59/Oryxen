@@ -17,11 +17,13 @@ const NETWORKS = [
 ];
 
 const ChainSwitchButton = () => {
+    const [mounted, setMounted] = useState(false);
     const [current, setCurrent] = useState<"devnet" | "mainnet">("devnet");
 
     // Read persisted network on mount (client-only)
     useEffect(() => {
         setCurrent(getSolanaNetwork());
+        setMounted(true);
     }, []);
 
     const handleSwitch = (network: "devnet" | "mainnet") => {
@@ -30,6 +32,15 @@ const ChainSwitchButton = () => {
     };
 
     const activeNetwork = NETWORKS.find((n) => n.value === current)!;
+
+    if (!mounted) {
+        return (
+            <Button variant="outline" size="sm" className="gap-2">
+                <Globe className="h-4 w-4" />
+                <span className={activeNetwork.color}>{activeNetwork.label}</span>
+            </Button>
+        );
+    }
 
     return (
         <DropdownMenu>

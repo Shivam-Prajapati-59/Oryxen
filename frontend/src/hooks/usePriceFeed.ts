@@ -16,7 +16,10 @@ class PriceFeedManager {
   /** subscriber-id → Set<symbol> */
   private subscribers = new Map<string, Set<string>>();
   /** subscriber-id → callback */
-  private listeners = new Map<string, (prices: Record<string, number>) => void>();
+  private listeners = new Map<
+    string,
+    (prices: Record<string, number>) => void
+  >();
   private stateListeners = new Map<string, (connected: boolean) => void>();
   private connected = false;
   private nextId = 0;
@@ -118,27 +121,34 @@ export const usePriceFeed = (symbols: string[] = []) => {
 
   const subRef = useRef<{ id: string; unsubscribe: () => void } | null>(null);
 
-  const handlePrices = useCallback((p: Record<string, number>) => setPrices(p), []);
+  const handlePrices = useCallback(
+    (p: Record<string, number>) => setPrices(p),
+    [],
+  );
   const handleState = useCallback((c: boolean) => setIsConnected(c), []);
 
+  // Handle subscription lifecycle (mount/unmount only)
   useEffect(() => {
     const syms = symbolsKey ? symbolsKey.split(",") : [];
     if (syms.length === 0 || (syms.length === 1 && syms[0] === "")) return;
 
     const mgr = getManager();
-
-    if (subRef.current) {
-      // Already subscribed — just update symbols
-      mgr.updateSymbols(subRef.current.id, syms);
-    } else {
-      subRef.current = mgr.subscribe(syms, handlePrices, handleState);
-    }
+    subRef.current = mgr.subscribe(syms, handlePrices, handleState);
 
     return () => {
       subRef.current?.unsubscribe();
       subRef.current = null;
     };
-  }, [symbolsKey, handlePrices, handleState]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [handlePrices, handleState]);
+
+  // Handle symbol updates without re-subscribing
+  useEffect(() => {
+    if (!subRef.current) return;
+    const syms = symbolsKey ? symbolsKey.split(",") : [];
+    if (syms.length === 0 || (syms.length === 1 && syms[0] === "")) return;
+    getManager().updateSymbols(subRef.current.id, syms);
+  }, [symbolsKey]);
 
   return { prices, isLoading: false, isConnected };
 };

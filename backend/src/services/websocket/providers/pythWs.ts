@@ -18,8 +18,8 @@ export class PythWebSocket {
   // Reconnect with exponential backoff
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempt = 0;
-  private static readonly BASE_DELAY = 1_000;   // 1 s
-  private static readonly MAX_DELAY  = 30_000;  // 30 s
+  private static readonly BASE_DELAY = 1_000; // 1 s
+  private static readonly MAX_DELAY = 30_000; // 30 s
 
   // Heartbeat to keep Hermes WS alive
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -210,6 +210,15 @@ export class PythWebSocket {
   private cleanup() {
     this.stopHeartbeat();
     this.clearReconnectTimer();
+    if (this.ws) {
+      this.ws.removeAllListeners();
+      if (
+        this.ws.readyState === WebSocket.OPEN ||
+        this.ws.readyState === WebSocket.CONNECTING
+      ) {
+        this.ws.close();
+      }
+    }
     this.ws = null;
   }
 
@@ -221,7 +230,9 @@ export class PythWebSocket {
     );
     const jitter = base * (0.75 + Math.random() * 0.5);
     this.reconnectAttempt++;
-    console.log(`[Pyth WS] Reconnecting in ${Math.round(jitter)}ms (attempt ${this.reconnectAttempt})`);
+    console.log(
+      `[Pyth WS] Reconnecting in ${Math.round(jitter)}ms (attempt ${this.reconnectAttempt})`,
+    );
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connect();
