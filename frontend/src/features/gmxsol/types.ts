@@ -11,6 +11,10 @@ export interface MarketInfo {
   isEnabled: boolean;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   rawAccount: any;
+  /** Raw account data bytes for SDK Market.decode() */
+  rawAccountData?: Uint8Array;
+  /** Market LP token total supply (string for BigInt compatibility) */
+  marketTokenSupply?: string;
 }
 
 // ─── Order Form ─────────────────────────────────────────────────────

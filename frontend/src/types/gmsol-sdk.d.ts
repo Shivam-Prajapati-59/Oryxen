@@ -173,8 +173,38 @@ declare module "@gmsol-labs/gmsol-sdk" {
   // ── Simulation Types ────────────────────────────────────────────
 
   export interface Value {
-    amount: bigint;
-    value: bigint;
+    min: bigint;
+    max: bigint;
+  }
+
+  export interface Prices {
+    index_token: Value;
+    long_token: Value;
+    short_token: Value;
+  }
+
+  export interface PositionStatus {
+    entry_price: bigint;
+    collateral_value: bigint;
+    pending_pnl: bigint;
+    pending_borrowing_fee_value: bigint;
+    pending_funding_fee_value: bigint;
+    pending_claimable_funding_fee_value_in_long_token: bigint;
+    pending_claimable_funding_fee_value_in_short_token: bigint;
+    close_order_fee_value: bigint;
+    net_value: bigint;
+    leverage: bigint | undefined;
+    liquidation_price: bigint | undefined;
+  }
+
+  export interface MarketStatusParams {
+    prices: Prices;
+  }
+
+  export interface MarketTokenPriceParams {
+    prices: Prices;
+    pnl_factor?: string;
+    maximize: boolean;
   }
 
   export interface SimulateOrderArgs {
@@ -209,12 +239,44 @@ declare module "@gmsol-labs/gmsol-sdk" {
 
   export class Market {
     static decode_from_base64(data: string): Market;
-    to_model(): unknown;
+    static decode_from_base64_with_options(data: string, no_discriminator?: boolean | null): Market;
+    static decode(data: Uint8Array): Market;
+    long_token_address(): string;
+    index_token_address(): string;
+    short_token_address(): string;
+    market_token_address(): string;
+    to_model(supply: bigint): MarketModel;
+    clone(): Market;
+    free(): void;
+  }
+
+  export class MarketModel {
+    market_token_price(params: MarketTokenPriceParams): bigint;
+    status(params: MarketStatusParams): unknown;
+    supply(): bigint;
+    create_empty_position(args: unknown): PositionModel;
+    clone(): MarketModel;
+    free(): void;
   }
 
   export class Position {
     static decode_from_base64(data: string): Position;
-    to_model(): unknown;
+    static decode_from_base64_with_options(data: string, no_discriminator?: boolean | null): Position;
+    static decode(data: Uint8Array): Position;
+    to_model(market: MarketModel): PositionModel;
+    clone(): Position;
+    free(): void;
+  }
+
+  export class PositionModel {
+    size_in_tokens(): bigint;
+    collateral_amount(): bigint;
+    size(): bigint;
+    status(prices: Prices): PositionStatus;
+    status_with_options(prices: Prices, include_virtual_inventory_impact?: boolean | null): PositionStatus;
+    position(): Position;
+    clone(): PositionModel;
+    free(): void;
   }
 
   export class TradeEvent {
@@ -222,7 +284,7 @@ declare module "@gmsol-labs/gmsol-sdk" {
       data: string,
       noDiscriminator?: boolean | null,
     ): TradeEvent;
-    to_position_model(): unknown;
+    to_position_model(market: MarketModel): PositionModel;
   }
 
   export class MarketGraph {
@@ -230,8 +292,15 @@ declare module "@gmsol-labs/gmsol-sdk" {
       swap_estimation_params: { value: bigint; base_cost: bigint };
       max_steps: number;
     });
-    insert_market_from_base64(data: string, supply: bigint): void;
+    insert_market_from_base64(data: string, supply: bigint): boolean;
+    insert_market_from_base64_with_options(data: string, supply: bigint, update_estimation: boolean): boolean;
+    get_market(market_token: string): MarketModel | undefined;
+    update_token_price(token: string, price: Value): void;
+    best_swap_path(source: string, target: string, skip_bellman_ford: boolean): unknown;
+    market_tokens(): string[];
     to_simulator(): Simulator;
+    clone(): MarketGraph;
+    free(): void;
   }
 
   export interface Simulator {

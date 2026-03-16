@@ -60,7 +60,7 @@ export const listOrders = async (
     const orders = await program.account.order.all([
       {
         memcmp: {
-          offset: 80, // actionHeader.owner offset
+          offset: 88, // actionHeader.owner offset is 88 in actual devnet structure
           bytes: owner.toBase58(),
         },
       },
@@ -81,6 +81,10 @@ export const listOrders = async (
       else if (sideNum === 1) parsedSide = "short";
       else throw new Error(`Unexpected sideNum: ${sideNum}`);
 
+      const sizeDeltaValueStr = params.sizeDeltaValue?.toString() ?? "0";
+      const initialCollateralStr = params.initialCollateralDeltaAmount?.toString() ?? "0";
+      const triggerPriceStr = params.triggerPrice?.toString() ?? "0";
+
       return {
         address: o.publicKey.toBase58(),
         id: header.id?.toString() ?? "0",
@@ -91,10 +95,9 @@ export const listOrders = async (
         side: parsedSide,
         actionState:
           ACTION_STATES[actionStateNum] ?? `Unknown(${actionStateNum})`,
-        sizeDeltaValue: params.sizeDeltaValue?.toString() ?? "0",
-        initialCollateralDeltaAmount:
-          params.initialCollateralDeltaAmount?.toString() ?? "0",
-        triggerPrice: params.triggerPrice?.toString() ?? "0",
+        sizeDeltaValue: sizeDeltaValueStr,
+        initialCollateralDeltaAmount: initialCollateralStr,
+        triggerPrice: triggerPriceStr,
         acceptablePrice: params.acceptablePrice?.toString() ?? "0",
         collateralToken: params.collateralToken?.toBase58?.() ?? "",
         initialCollateralToken:

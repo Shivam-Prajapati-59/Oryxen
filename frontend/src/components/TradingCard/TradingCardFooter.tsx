@@ -17,13 +17,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 
-/** Index-token decimals keyed by normalised base symbol. */
-const INDEX_TOKEN_DECIMALS: Record<string, number> = {
-    sol: 9, btc: 8, eth: 18, wbtc: 8, weth: 18,
-};
-function indexDecimals(symbol: string): number {
-    return INDEX_TOKEN_DECIMALS[symbol.toLowerCase()] ?? 9;
-}
 
 const formatUsd = (value: number): string => {
     if (Math.abs(value) < 0.01) return "$0.00";
@@ -96,60 +89,93 @@ const TradingCardFooter = () => {
 
     const { prices: pythPrices } = usePriceFeed(gmsolBaseSymbols);
 
-    // ── GMSOL data ─────────────────────────────────────────────────
-    const gmsolPositions: (Position & { protocol: string })[] = useMemo(() => {
-        return gmsol.positions.map((pos, idx) => {
-            const sizeRaw = BigInt(pos.sizeInUsd || "0");
-            const sizeUsd = Number(sizeRaw) / 1e30;
-            // Collateral is stored in token-native decimals (9 for SOL, 6 for USDC)
-            // Default to 9 (SOL) since most GMSOL positions use SOL-denominated collateral
-            const collateralRaw = BigInt(pos.collateralAmount || "0");
-            const collateralUsd = Number(collateralRaw) / 1e9;
-            const market = gmsol.markets.find(
-                (m) => m.marketTokenMint === pos.marketToken,
-            );
-            const baseSymbol = market?.name?.split("/")[0]?.trim() || "";
-            const tokDecimals = indexDecimals(baseSymbol);
+    // ── GMSOL: SDK constants ────────────────────────────────────────
+    // sizeInUsd in Position accounts uses 30 decimals.
+    const SIZE_USD_DIVISOR_30_TO_HUMAN = BigInt("1000000000000000000000000000000"); // 10^30
 
-            // Entry price = sizeInUsd / sizeInTokens (both u128)
-            // sizeInUsd has 30 decimals, sizeInTokens has tokDecimals decimals
-            const sizeInTokensRaw = BigInt(pos.sizeInTokens || "0");
-            let entryPrice = 0;
-            if (sizeInTokensRaw > BigInt(0)) {
-                // entryPrice = (sizeInUsd / 1e30) / (sizeInTokens / 10^tokDecimals)
-                //            = sizeInUsd * 10^tokDecimals / (sizeInTokens * 10^30)
-                // We scale to 18 intermediate decimals to preserve precision
-                const PRECISION = BigInt(18);
-                const scaledNumerator = sizeRaw * BigInt(10) ** (PRECISION + BigInt(tokDecimals));
-                const scaledDenominator = sizeInTokensRaw * BigInt(10) ** BigInt(30);
-                entryPrice = Number(scaledNumerator / scaledDenominator) / Number(BigInt(10) ** PRECISION);
+    // ── GMSOL data (SDK-computed) ───────────────────────────────────
+    const [gmsolPositions, setGmsolPositions] = useState<(Position & { protocol: string })[]>([]);
+
+    // Use the SDK enrichment pipeline for accurate position data
+    useEffect(() => {
+        if (gmsol.positions.length === 0) {
+            setGmsolPositions([]);
+            return;
+        }
+
+        let cancelled = false;
+
+        (async () => {
+            try {
+                const { enrichAllPositions } = await import("@/features/gmxsol/adapter/enrich-positions");
+                const enriched = await enrichAllPositions(
+                    gmsol.positions,
+                    gmsol.markets,
+                    pythPrices,
+                );
+
+                if (cancelled) return;
+
+                const mapped = enriched
+                    .filter((e) => e.sizeUsd >= 0.01)
+                    .map((e, idx) => {
+                        const market = gmsol.markets.find(
+                            (m) => m.marketTokenMint === e.raw.marketToken,
+                        );
+                        const rawName = market?.name || e.raw.marketToken.slice(0, 8);
+                        const cleanName = rawName.replace(/\[.*\]$/, "").trim();
+                        const baseSymbol = market?.name?.split("/")[0]?.trim() || "";
+                        const currentPrice = baseSymbol ? (pythPrices[baseSymbol] ?? 0) : 0;
+
+                        return {
+                            marketIndex: idx,
+                            marketSymbol: cleanName,
+                            size: e.sizeUsd,
+                            entryPrice: e.entryPrice,
+                            currentPrice,
+                            unrealizedPnl: e.unrealizedPnl,
+                            leverage: e.leverage,
+                            liquidationPrice: e.liquidationPrice,
+                            protocol: "GMXSol" as const,
+                            side: e.raw.side,
+                        };
+                    });
+
+                setGmsolPositions(mapped);
+            } catch (err) {
+                console.error("[TradingCardFooter] SDK enrichment failed:", err);
+                // Fallback: basic computation without SDK
+                if (cancelled) return;
+                setGmsolPositions(
+                    gmsol.positions
+                        .map((pos, idx) => {
+                            const market = gmsol.markets.find(
+                                (m) => m.marketTokenMint === pos.marketToken,
+                            );
+                            const rawName = market?.name || pos.marketToken.slice(0, 8);
+                            const cleanName = rawName.replace(/\[.*\]$/, "").trim();
+                            const sizeRaw = BigInt(pos.sizeInUsd || "0");
+                            const sizeUsd = Number(sizeRaw * BigInt(1000000) / SIZE_USD_DIVISOR_30_TO_HUMAN) / 1e6;
+
+                            return {
+                                marketIndex: idx,
+                                marketSymbol: cleanName,
+                                size: sizeUsd,
+                                entryPrice: 0,
+                                currentPrice: 0,
+                                unrealizedPnl: 0,
+                                leverage: 0,
+                                liquidationPrice: undefined as number | undefined,
+                                protocol: "GMXSol" as const,
+                                side: pos.side,
+                            };
+                        })
+                        .filter((p) => p.size >= 0.01),
+                );
             }
+        })();
 
-            // Current price from Pyth websocket
-            const currentPrice = baseSymbol ? (pythPrices[baseSymbol] ?? 0) : 0;
-
-            // PnL = tokenAmount * (currentPrice - entryPrice) for longs
-            //      = tokenAmount * (entryPrice - currentPrice) for shorts
-            const tokenAmount = Number(sizeInTokensRaw) / Math.pow(10, tokDecimals);
-            let unrealizedPnl = 0;
-            if (currentPrice > 0 && entryPrice > 0) {
-                unrealizedPnl = pos.side === "long"
-                    ? tokenAmount * (currentPrice - entryPrice)
-                    : tokenAmount * (entryPrice - currentPrice);
-            }
-
-            return {
-                marketIndex: idx,
-                marketSymbol: market?.name || pos.marketToken.slice(0, 8),
-                size: sizeUsd,
-                entryPrice,
-                currentPrice,
-                unrealizedPnl,
-                leverage: collateralUsd > 0 ? sizeUsd / collateralUsd : 0,
-                protocol: "GMXSol" as const,
-                side: pos.side,
-            };
-        });
+        return () => { cancelled = true; };
     }, [gmsol.positions, gmsol.markets, pythPrices]);
 
     // ── Merged views ───────────────────────────────────────────────
@@ -166,33 +192,32 @@ const TradingCardFooter = () => {
         return [...driftWithProtocol, ...(gmsolPositions as PositionWithMeta[])];
     }, [activeProtocol, driftPositions, gmsolPositions]);
 
-    useEffect(() => {
-        // console.log("Drift Position Details:", driftPositions);
-        console.log("GMSOL Position Details:", gmsolPositions);
-    }, [driftPositions, gmsolPositions]);
-
     const allOrders = useMemo(() => {
         if (!gmsol.orders.length) return [];
-        // Show GMSOL orders; Drift orders are logged separately below
         if (activeProtocol === "drift") return [];
-        return gmsol.orders.map((o) => ({
-            address: o.address,
-            kind: o.kind,
-            side: o.side,
-            market: o.marketToken.slice(0, 8),
-            sizeDelta: o.sizeDeltaValue,
-            state: o.actionState,
-            protocol: "GMXSol",
-        }));
-    }, [activeProtocol, gmsol.orders]);
+        return gmsol.orders.map((o) => {
+            // Find matching market for a human-readable name
+            const market = gmsol.markets.find(m => m.marketTokenMint === o.marketToken);
+            const marketName = market?.name?.replace(/\[.*\]$/, "").trim() || o.marketToken.slice(0, 8);
 
-    useEffect(() => {
-        if (allOrders && allOrders.length > 0) {
-            console.log("-----------------------------------------");
-            console.log("Active / Unfilled Orders (GMSOL):", allOrders);
-            console.log("-----------------------------------------");
-        }
-    }, [allOrders]);
+            // Convert sizeDelta from 30-decimal to human USD
+            let sizeDeltaUsd = 0;
+            try {
+                sizeDeltaUsd = Number(BigInt(o.sizeDeltaValue) * BigInt(1000000) / SIZE_USD_DIVISOR_30_TO_HUMAN) / 1e6;
+            } catch { /* ignore */ }
+
+            return {
+                address: o.address,
+                kind: o.kind,
+                side: o.side,
+                market: marketName,
+                sizeDelta: o.sizeDeltaValue,
+                sizeDeltaUsd,
+                state: o.actionState,
+                protocol: "GMXSol",
+            };
+        });
+    }, [activeProtocol, gmsol.orders, gmsol.markets]);
 
     useEffect(() => {
         if (isDriftReady && activeProtocol === "drift" && drift.driftClient && drift.user) {

@@ -13,36 +13,15 @@ export interface PositionInfo {
   collateralAmount: string;
   borrowingFactor: string;
   createdAt: number;
+  /** Raw account data (Uint8Array) for SDK decoding */
+  rawData: Uint8Array;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   rawAccount: any;
 }
 
 // ── repr(C) byte offsets for the Position account ───────────────────
-// The on-chain Position struct uses bytemuck (repr(C)) serialization.
-// On Solana SBF, u128 has 8-byte alignment (not 16), so the layout is
-// identical to Borsh encoding for this struct. We still parse raw bytes
-// to avoid depending on Anchor's coder and to get the kind mapping right.
-//
-// Layout (with 8-byte Anchor discriminator):
-//   0..8   discriminator
-//   8      version    (u8)
-//   9      bump       (u8)
-//  10..42  store      (pubkey)
-//  42      kind       (u8)   — 1 = Long, 2 = Short
-//  43..56  padding_0  ([u8; 13])
-//  56..88  owner      (pubkey)
-//  88..120 market_token (pubkey)
-// 120..152 collateral_token (pubkey)
-//
-// PositionState starts at 152:
-// 152..160 trade_id       (u64)
-// 160..168 increased_at   (i64)
-// 168..176 updated_at_slot(u64)
-// 176..184 decreased_at   (i64)
-// 184..200 size_in_tokens       (u128)
-// 200..216 collateral_amount    (u128)
-// 216..232 size_in_usd          (u128)
-// 232..248 borrowing_factor     (u128)
+// Minimal offsets needed for pre-filtering (kind, owner).
+// All actual field extraction is done by SDK Position.decode().
 const OFF_KIND = 42;
 const OFF_OWNER = 56;
 const OFF_MARKET_TOKEN = 88;
@@ -67,15 +46,15 @@ function readPubkey(buf: Uint8Array, offset: number): string {
 }
 
 // Anchor discriminator for Position: first 8 bytes of SHA256("account:Position")
-// base58: "VZMoMoKgZQb"
 const POSITION_DISCRIMINATOR_B58 = "VZMoMoKgZQb";
 
 /**
  * Fetch all positions for a given owner from the GMSOL store program.
  *
  * Uses raw `getProgramAccounts` with memcmp filters (discriminator + owner),
- * then manually deserializes the repr(C) / bytemuck layout to correctly
- * map PositionKind (1=Long, 2=Short) and read all fields at known offsets.
+ * then manually deserializes the repr(C) / bytemuck layout for basic fields.
+ * The raw data is also returned so callers can use SDK Position.decode()
+ * for full position model computation.
  */
 export const listPositions = async (
   program: Program<GmsolStore>,
@@ -90,12 +69,6 @@ export const listPositions = async (
       filters: [
         {
           memcmp: {
-            offset: 0,
-            bytes: POSITION_DISCRIMINATOR_B58,
-          },
-        },
-        {
-          memcmp: {
             offset: OFF_OWNER,
             bytes: owner.toBase58(),
           },
@@ -103,61 +76,56 @@ export const listPositions = async (
       ],
     });
 
-    return accounts
-      .filter((a) => {
-        // Basic size guard — Position accounts should be large enough
-        if (a.account.data.length < OFF_BORROWING_FACTOR + 16) return false;
-        const buf = new Uint8Array(a.account.data);
-        const kind = buf[OFF_KIND];
-        if (kind !== 1 && kind !== 2) {
-          console.warn(
-            `[listPositions] skipping account ${a.pubkey.toBase58()} due to unknown kind: ${kind}`,
-          );
-          return false;
-        }
-        return true;
-      })
-      .map((a) => {
-        const buf = new Uint8Array(a.account.data);
-        const kind = buf[OFF_KIND];
-        const ownerStr = readPubkey(buf, OFF_OWNER);
-        const marketToken = readPubkey(buf, OFF_MARKET_TOKEN);
-        const collateralToken = readPubkey(buf, OFF_COLLATERAL_TOKEN);
+    const validAccounts = accounts.filter((a) => {
+      if (a.account.data.length < OFF_BORROWING_FACTOR + 16) return false;
+      const buf = new Uint8Array(a.account.data);
+      const kind = buf[OFF_KIND];
+      return kind === 1 || kind === 2;
+    });
 
-        const sizeInTokens = readU128(buf, OFF_SIZE_IN_TOKENS);
-        const collateralAmount = readU128(buf, OFF_COLLATERAL_AMOUNT);
-        const sizeInUsd = readU128(buf, OFF_SIZE_IN_USD);
-        const borrowingFactor = readU128(buf, OFF_BORROWING_FACTOR);
-        const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
-        const increasedAt = Number(view.getBigInt64(OFF_INCREASED_AT, true));
+    const allParsed = validAccounts.map((a) => {
+      const buf = new Uint8Array(a.account.data);
+      const kind = buf[OFF_KIND];
+      const ownerStr = readPubkey(buf, OFF_OWNER);
+      const marketToken = readPubkey(buf, OFF_MARKET_TOKEN);
+      const collateralToken = readPubkey(buf, OFF_COLLATERAL_TOKEN);
 
-        // PositionKind: 1 = Long, 2 = Short (from on-chain enum)
-        const side: "long" | "short" = kind === 2 ? "short" : "long";
+      const sizeInTokens = readU128(buf, OFF_SIZE_IN_TOKENS);
+      const collateralAmount = readU128(buf, OFF_COLLATERAL_AMOUNT);
+      const sizeInUsd = readU128(buf, OFF_SIZE_IN_USD);
+      const borrowingFactor = readU128(buf, OFF_BORROWING_FACTOR);
+      const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+      const increasedAt = Number(view.getBigInt64(OFF_INCREASED_AT, true));
 
-        console.log("[listPositions] raw position:", {
-          address: a.pubkey.toBase58(),
-          kind,
-          side,
-          owner: ownerStr,
-          marketToken,
-          collateralToken,
-          sizeInUsd,
-        });
+      const side: "long" | "short" = kind === 2 ? "short" : "long";
 
-        return {
-          address: a.pubkey.toBase58(),
-          owner: ownerStr,
-          marketToken,
-          collateralToken,
-          side,
-          sizeInUsd,
-          sizeInTokens,
-          collateralAmount,
-          borrowingFactor,
-          createdAt: increasedAt,
-          rawAccount: { kind },
-        };
-      });
+      return {
+        address: a.pubkey.toBase58(),
+        owner: ownerStr,
+        marketToken,
+        collateralToken,
+        side,
+        sizeInUsd,
+        sizeInTokens,
+        collateralAmount,
+        borrowingFactor,
+        createdAt: increasedAt,
+        rawData: buf,
+        rawAccount: { kind },
+      };
+    });
+
+    // Filter out zero-size and dust positions.
+    // We will just filter out 0 size to be safe since devnet sizes might scale differently
+    const MIN_SIZE_USD = BigInt("1000"); // Extremely low threshold just to block 0
+
+    return allParsed.filter((p) => {
+      try {
+        return BigInt(p.sizeInUsd) >= MIN_SIZE_USD;
+      } catch {
+        return false;
+      }
+    });
   } catch (error) {
     console.error("Failed to list GMSOL positions:", error);
     throw error;

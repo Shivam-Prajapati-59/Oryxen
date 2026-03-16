@@ -96,7 +96,7 @@ export const useGmsol = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await listMarkets(readOnlyProgram);
+      const data = await listMarkets(readOnlyProgram, connection);
       setMarkets(data);
     } catch (err: unknown) {
       console.error(err);
@@ -104,7 +104,7 @@ export const useGmsol = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [readOnlyProgram]);
+  }, [readOnlyProgram, connection]);
 
   // ── Fetch user positions and orders ──────────────────────────────
   const fetchPositionsAndOrders = useCallback(async () => {
