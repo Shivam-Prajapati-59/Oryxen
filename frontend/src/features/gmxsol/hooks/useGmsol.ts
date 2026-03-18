@@ -39,11 +39,18 @@ import type {
   UpdateParams,
   UpdateOrderParams,
 } from "@gmsol-labs/gmsol-sdk";
-import { Connection, PublicKey, VersionedTransaction } from "@solana/web3.js";
+import {
+  Connection,
+  PublicKey,
+  SendTransactionError,
+  VersionedTransaction,
+} from "@solana/web3.js";
 import { AnchorProvider, Program } from "@coral-xyz/anchor";
 import { IDL } from "@/lib/idl/gmxsol/gmsol-store-idl";
 import { GmsolStore } from "@/lib/idl/gmxsol/gmsol_store_type";
 import { GMSOL_RPC_URL, GMSOL_CHAIN_PREFIX } from "../constants";
+
+const NATIVE_SOL_MINT = PublicKey.default.toBase58();
 
 export const useGmsol = () => {
   const { wallets } = useWallets();
@@ -189,11 +196,23 @@ export const useGmsol = () => {
       } catch (err) {
         console.error("signAndSendTransactions failed:", err);
 
+        let fetchedLogs: string[] | undefined;
+        if (err instanceof SendTransactionError) {
+          try {
+            fetchedLogs = await err.getLogs(connection);
+          } catch (getLogsErr) {
+            console.warn(
+              "Failed to fetch SendTransactionError logs:",
+              getLogsErr,
+            );
+          }
+        }
+
         // Extract a readable message from any error shape
         let errMsg: string;
         if (err instanceof Error) {
-          // Solana SendTransactionError may have .logs
-          const logs = (err as any).logs as string[] | undefined;
+          const logsFromError = (err as any).logs as string[] | undefined;
+          const logs = fetchedLogs?.length ? fetchedLogs : logsFromError;
           errMsg = logs?.length
             ? `${err.message}\nLogs:\n${logs.join("\n")}`
             : err.message;
@@ -371,7 +390,54 @@ export const useGmsol = () => {
         const { blockhash } = await connection.getLatestBlockhash();
         const payer = privyWallet.address;
 
-        // Build the orders Map exactly like the demo
+        const marketInfo = markets.find(
+          (m) => m.marketTokenMint === orderInfo.marketToken,
+        );
+
+        const isValidToken = (token?: string | null) =>
+          Boolean(token && token.trim().length > 0);
+        const isValidMarketToken = (token?: string | null) =>
+          isValidToken(token) && token !== NATIVE_SOL_MINT;
+
+        const longToken =
+          (isValidMarketToken(orderInfo.longToken)
+            ? orderInfo.longToken
+            : marketInfo?.longToken) ?? undefined;
+        const shortToken =
+          (isValidMarketToken(orderInfo.shortToken)
+            ? orderInfo.shortToken
+            : marketInfo?.shortToken) ?? undefined;
+        const initialColTokenRaw =
+          (isValidToken(orderInfo.initialCollateralToken)
+            ? orderInfo.initialCollateralToken
+            : orderInfo.collateralToken) ?? undefined;
+        const finalOutTokenRaw =
+          (isValidToken(orderInfo.finalOutputToken)
+            ? orderInfo.finalOutputToken
+            : orderInfo.collateralToken) ?? undefined;
+
+        const initialColToken =
+          initialColTokenRaw === NATIVE_SOL_MINT
+            ? undefined
+            : initialColTokenRaw;
+        const finalOutToken =
+          finalOutTokenRaw === NATIVE_SOL_MINT ? undefined : finalOutTokenRaw;
+
+        if (!longToken || !shortToken) {
+          throw new Error(
+            "Unable to determine long/short tokens for order's market.",
+          );
+        }
+
+        if (!initialColTokenRaw || !finalOutTokenRaw) {
+          throw new Error(
+            "Unable to determine collateral tokens for close order.",
+          );
+        }
+
+        // Native SOL is represented as the system address, not an SPL mint.
+        // Excluding it from hint tokens avoids ATA creation attempts for a
+        // non-mint account in the SDK prepare-token-accounts phase.
         const ordersMap = new Map<string, CloseOrderHint>([
           [
             orderAddress,
@@ -380,11 +446,10 @@ export const useGmsol = () => {
               receiver: payer,
               rent_receiver: payer,
               referrer: undefined,
-              initial_collateral_token:
-                orderInfo.initialCollateralToken || undefined,
-              final_output_token: orderInfo.finalOutputToken || undefined,
-              long_token: orderInfo.longToken,
-              short_token: orderInfo.shortToken,
+              initial_collateral_token: initialColToken,
+              final_output_token: finalOutToken,
+              long_token: longToken,
+              short_token: shortToken,
               should_unwrap_native_token: true,
               callback: undefined,
             },
