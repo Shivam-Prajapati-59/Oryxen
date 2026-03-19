@@ -33,7 +33,7 @@ export default function RootLayout({
           className={`${notoSans.variable} ${ibmPlexSans.variable} antialiased`}
         >
           <Providers>
-            <Navbar />
+            {/* <Navbar /> */}
             {children}
           </Providers>
         </body>

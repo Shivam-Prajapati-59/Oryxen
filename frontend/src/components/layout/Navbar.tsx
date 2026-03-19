@@ -7,12 +7,19 @@ import { ThemeToggleButton } from '../custom/ThemeToggle';
 // import { MobileNav } from '../common/Mobile-Nav';
 import Image from 'next/image';
 import { useState } from 'react';
+import { usePathname } from 'next/navigation';
 import ConnectWallet from '../wallet/ConnectWallet';
 import ChainSwitchButton from '../common/ChainSwitchButton';
 
 
 export default function Navbar() {
     const [searchOpen, setSearchOpen] = useState(false);
+    const pathname = usePathname();
+
+    // Hide global navbar on landing page (it has its own navbar)
+    if (pathname === '/landing') {
+        return null;
+    }
 
     const mobileNavItems = navbarConfig.navItems.map(item => ({
         title: item.label,
