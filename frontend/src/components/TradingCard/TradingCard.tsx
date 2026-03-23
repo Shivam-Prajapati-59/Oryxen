@@ -1,18 +1,30 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import TradingCardHeader from "./TradingCardHeader";
 import TradingViewWidget from "../custom/TradingViewWidget";
 import TradingCardFooter from "./TradingCardFooter";
 import TradingOrderPanel from "./TradingOrderPanel";
 import TradingHeaderDialog from "./TradingHeaderDialog";
 import { PerpFundingRate, useFundingRates } from "@/hooks/useFundingRates";
+import { useGmxsolMarkets } from "@/hooks/useGmxsolMarkets";
 import Container from "../common/Container";
 
 const TradingCard = () => {
-    // 1. Fetch All Rates (Parent State)
-    const { data: response, isLoading, isError } = useFundingRates("drift");
-    const allPerps = response?.data;
+    // 1. Fetch Drift Rates
+    const { data: response, isLoading: driftLoading, isError: driftError } = useFundingRates("drift");
+    const driftPerps = response?.data ?? [];
+
+    // 2. Fetch GMXSol Markets
+    const { data: gmxsolPerps, isLoading: gmxsolLoading, isError: gmxsolError } = useGmxsolMarkets();
+
+    // 3. Merge all markets
+    const isLoading = driftLoading || gmxsolLoading;
+    const isError = driftError || gmxsolError;
+    const allPerps = useMemo(() => {
+        const combined = [...driftPerps, ...(gmxsolPerps ?? [])];
+        return combined;
+    }, [driftPerps, gmxsolPerps]);
 
     const [isDialogOpen, setIsDialogOpen] = useState(false);
 
