@@ -1,5 +1,6 @@
 import { Router } from "express";
-import driftRoutes from "./drfit.routes";
+import driftRoutes from "./drift.routes";
+import gmxsolRoutes from "./gmxsol.routes";
 import hyperliquidRoutes from "./hyperliquid.routes";
 import perpRoutes from "./perpslist.routes";
 import syncRoutes from "./sync.routes";
@@ -8,6 +9,7 @@ const router = Router();
 
 // Mount protocol-specific routes
 router.use("/drift", driftRoutes);
+router.use("/gmxsol", gmxsolRoutes);
 router.use("/hyperliquid", hyperliquidRoutes);
 router.use("/funding-rates", perpRoutes);
 

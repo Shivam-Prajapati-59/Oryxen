@@ -49,6 +49,7 @@ app.get("/", (req, res) => {
       health: "/api/health",
       allFundingRates: "/api/funding-rates",
       drift: "/api/drift/funding-rates",
+      gmxsol: "/api/gmxsol/markets",
       hyperliquid: "/api/hyperliquid/funding-rates",
       websocket: `ws://localhost:${PORT}/ws`,
       sync: {
@@ -231,6 +232,7 @@ console.log(
 console.log(
   `   - Hyperliquid: http://localhost:${server.port}/api/hyperliquid/funding-rates`,
 );
+console.log(`   - GMXSol: http://localhost:${server.port}/api/gmxsol/markets`);
 console.log(`\n   🔄 Sync (fetch & update):`);
 console.log(`   - All: POST http://localhost:${server.port}/api/sync/all`);
 console.log(`   - Drift: POST http://localhost:${server.port}/api/sync/drift`);

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { getContractsFundingRates } from "../controllers/drfit.controller";
+import { getContractsFundingRates } from "../controllers/drift.controller";
 
 const router = Router();
 
