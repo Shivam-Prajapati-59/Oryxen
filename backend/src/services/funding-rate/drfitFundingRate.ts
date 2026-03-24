@@ -1,69 +1,84 @@
 import type { MarketFundingData } from "../../types/fundingRate";
-import { calculateDriftProjections } from "../../utils/helpers/fundingRateFormatter";
 
 /* -------------------------------------------------------------------------- */
 /*                                    Types                                   */
 /* -------------------------------------------------------------------------- */
 
-interface DriftContract {
-  ticker_id: string;
-  funding_rate: string;
-  last_price: string;
-  contract_index?: number;
-  base_currency?: string;
-  quote_currency?: string;
-  open_interest?: string;
-  index_price?: string;
-  next_funding_rate?: string;
-  next_funding_rate_timestamp?: number;
-  high?: string;
-  low?: string;
-  quote_volume?: string;
-}
-
-interface DriftApiResponse {
-  success?: boolean;
-  contracts: DriftContract[];
-}
-
-interface DriftMarketStats {
+interface DriftMarketSummary {
   symbol: string;
-  marketIndex: number;
-  marketType: string;
-  limits: {
-    leverage: {
-      min: number;
-      max: number;
+  marketIndex?: number;
+  marketType?: string;
+  baseAsset?: string;
+  quoteAsset?: string;
+  limits?: {
+    leverage?: {
+      min?: number;
+      max?: number;
     };
   };
-  marginRatioInitial?: number; // Fallback
+  oraclePrice?: string;
+  markPrice?: string;
+  price?: string;
+  quoteVolume?: string;
+  fundingRate?: {
+    long?: string;
+    short?: string;
+  };
+  fundingRate24h?: string;
+  fundingRateUpdateTs?: number;
+  openInterest?: {
+    long?: string;
+    short?: string;
+  };
+  priceHigh?: {
+    oracle?: string;
+    fill?: string;
+  };
+  priceLow?: {
+    oracle?: string;
+    fill?: string;
+  };
 }
 
-interface DriftStatsResponse {
+interface DriftMarketsResponse {
   success?: boolean;
-  markets: DriftMarketStats[];
+  markets: DriftMarketSummary[];
+}
+
+interface DriftFundingRatesMarket {
+  marketIndex: number;
+  symbol: string;
+  fundingRates: {
+    "24h"?: string;
+    "7d"?: string;
+    "30d"?: string;
+    "1y"?: string;
+  };
+}
+
+interface DriftFundingRatesResponse {
+  success?: boolean;
+  markets: DriftFundingRatesMarket[];
 }
 
 /* -------------------------------------------------------------------------- */
 /*                                 Validators                                 */
 /* -------------------------------------------------------------------------- */
 
-function isValidContract(contract: DriftContract): boolean {
-  return Boolean(
-    contract.ticker_id &&
-    contract.funding_rate !== undefined &&
-    contract.last_price,
-  );
+function isValidPerpMarket(market: DriftMarketSummary): boolean {
+  return Boolean(market.symbol && market.marketType?.toLowerCase() === "perp");
 }
 
 function parseNumber(
-  value: string,
+  value: string | undefined,
   label: string,
-  ticker: string,
+  symbol: string,
 ): number | null {
+  if (value === undefined || value === null || value === "") return null;
+
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) {
-    console.warn(`Invalid ${label} for ${ticker}:`, value);
+    console.warn(`Invalid ${label} for ${symbol}:`, value);
     return null;
   }
   return parsed;
@@ -79,103 +94,115 @@ function getTokenImageUrl(tickerId: string): string {
   return `https://drift-public.s3.eu-central-1.amazonaws.com/assets/icons/markets/${symbol}.svg`;
 }
 
-function transformContract(
-  contract: DriftContract,
-  maxLeverageMap: Map<string, number>,
-): MarketFundingData | null {
-  if (!isValidContract(contract)) return null;
+function parseOpenInterestTotal(
+  openInterest: DriftMarketSummary["openInterest"],
+): string {
+  const long = Number(openInterest?.long ?? 0);
+  const short = Number(openInterest?.short ?? 0);
 
-  const ticker = contract.ticker_id.toUpperCase();
-  const fundingRate = parseNumber(
-    contract.funding_rate,
-    "funding rate",
-    ticker,
+  if (!Number.isFinite(long) || !Number.isFinite(short)) {
+    return "0";
+  }
+
+  // Drift exposes long/short side OI separately; using max side avoids double-counting.
+  return Math.max(Math.abs(long), Math.abs(short)).toString();
+}
+
+function getCurrentFundingRate(market: DriftMarketSummary): number | null {
+  const symbol = market.symbol.toUpperCase();
+  const longRate = parseNumber(
+    market.fundingRate?.long,
+    "fundingRate.long",
+    symbol,
   );
-  const price = parseNumber(contract.last_price, "price", ticker);
+  if (longRate !== null) return longRate;
 
-  if (fundingRate === null || price === null || Math.abs(price) < 1e-10) {
+  return null;
+}
+
+function transformMarket(
+  market: DriftMarketSummary,
+  fundingRatesBySymbol: Map<string, DriftFundingRatesMarket>,
+  fundingRatesByIndex: Map<number, DriftFundingRatesMarket>,
+): MarketFundingData | null {
+  if (!isValidPerpMarket(market)) return null;
+
+  const symbol = market.symbol.toUpperCase();
+  const currentFundingRate = getCurrentFundingRate(market);
+  const price =
+    parseNumber(market.price, "price", symbol) ??
+    parseNumber(market.markPrice, "markPrice", symbol) ??
+    parseNumber(market.oraclePrice, "oraclePrice", symbol);
+
+  if (
+    currentFundingRate === null ||
+    price === null ||
+    Math.abs(price) < 1e-10
+  ) {
     return null;
   }
 
-  // Attempt to get leverage using the full ticker (e.g., SOL-PERP)
-  const maxLeverage = maxLeverageMap.get(ticker) || 0;
+  const fundingStats =
+    (market.marketIndex !== undefined
+      ? fundingRatesByIndex.get(market.marketIndex)
+      : undefined) ?? fundingRatesBySymbol.get(symbol);
+
+  const d1 = parseNumber(
+    fundingStats?.fundingRates?.["24h"],
+    "fundingRates.24h",
+    symbol,
+  );
+  const d7 = parseNumber(
+    fundingStats?.fundingRates?.["7d"],
+    "fundingRates.7d",
+    symbol,
+  );
+  const d30 = parseNumber(
+    fundingStats?.fundingRates?.["30d"],
+    "fundingRates.30d",
+    symbol,
+  );
+
+  // Return only fully-aligned records from Drift sources.
+  if (d1 === null || d7 === null || d30 === null) {
+    return null;
+  }
+
+  const projections = {
+    current: currentFundingRate,
+    h4: currentFundingRate * 4,
+    h8: currentFundingRate * 8,
+    h12: currentFundingRate * 12,
+    d1,
+    d7,
+    d30,
+    apr: d1 * 365,
+  };
+
+  const maxLeverage = market.limits?.leverage?.max ?? 0;
 
   return {
     protocol: "drift",
-    symbol: ticker,
+    symbol,
     price,
-    imageUrl: getTokenImageUrl(ticker),
-    fundingRate,
+    imageUrl: getTokenImageUrl(symbol),
+    fundingRate: currentFundingRate,
     maxleverage: maxLeverage,
-    projections: calculateDriftProjections(fundingRate),
+    projections,
     timestamp: Date.now(),
     metadata: {
-      contractIndex: contract.contract_index,
-      baseCurrency: contract.base_currency,
-      quoteCurrency: contract.quote_currency,
-      openInterest: contract.open_interest,
-      indexPrice: contract.index_price,
-      nextFundingRate: contract.next_funding_rate,
-      nextFundingRateTimestamp: contract.next_funding_rate_timestamp,
-      high24h: contract.high,
-      low24h: contract.low,
-      volume24h: contract.quote_volume,
+      contractIndex: market.marketIndex,
+      baseCurrency: market.baseAsset,
+      quoteCurrency: market.quoteAsset,
+      openInterest: parseOpenInterestTotal(market.openInterest),
+      indexPrice: market.oraclePrice,
+      nextFundingRate: market.fundingRate?.long,
+      nextFundingRateTimestamp: market.fundingRateUpdateTs,
+      high24h: market.priceHigh?.oracle ?? market.priceHigh?.fill,
+      low24h: market.priceLow?.oracle ?? market.priceLow?.fill,
+      volume24h: market.quoteVolume,
     },
   };
-}
-
-/* -------------------------------------------------------------------------- */
-/*                            Max Leverage Fetcher                            */
-/* -------------------------------------------------------------------------- */
-
-async function getMaxLeverageMap(): Promise<Map<string, number>> {
-  const url = "https://data.api.drift.trade/stats/markets";
-  const leverageMap = new Map<string, number>();
-
-  try {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-    const data = (await res.json()) as DriftStatsResponse;
-
-    if (!data.markets || !Array.isArray(data.markets)) {
-      console.warn("Invalid markets data structure from Drift stats");
-      return leverageMap;
-    }
-
-    for (const market of data.markets) {
-      if (!market.symbol) continue;
-
-      const symbol = market.symbol.toUpperCase();
-      let maxLeverage = 0;
-
-      // 1. Primary: Use the explicit limits field from your JSON
-      if (market.limits?.leverage?.max) {
-        maxLeverage = market.limits.leverage.max;
-      }
-      // 2. Fallback: Calculate from initial margin ratio if limits are missing
-      else if (market.marginRatioInitial && market.marginRatioInitial > 0) {
-        // Handle potential scaling (e.g., 500 for 5%)
-        const ratio =
-          market.marginRatioInitial > 1
-            ? market.marginRatioInitial / 10000
-            : market.marginRatioInitial;
-        maxLeverage = Math.floor(1 / ratio);
-      }
-
-      if (maxLeverage > 0) {
-        leverageMap.set(symbol, maxLeverage);
-      }
-    }
-
-    console.log(
-      `✅ Fetched max leverage for ${leverageMap.size} Drift markets`,
-    );
-    return leverageMap;
-  } catch (err) {
-    console.error("Failed to fetch Drift max leverage:", err);
-    return leverageMap;
-  }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -183,26 +210,52 @@ async function getMaxLeverageMap(): Promise<Map<string, number>> {
 /* -------------------------------------------------------------------------- */
 
 export async function getAllFundingRates(): Promise<MarketFundingData[]> {
-  const url = "https://data.api.drift.trade/contracts";
+  const marketsUrl = "https://data.api.drift.trade/stats/markets";
+  const fundingRatesUrl = "https://data.api.drift.trade/stats/fundingRates";
 
   try {
-    // Fetch both contracts and leverage stats in parallel
-    const [contractsRes, maxLeverageMap] = await Promise.all([
-      fetch(url),
-      getMaxLeverageMap(),
+    const [marketsRes, fundingRatesRes] = await Promise.all([
+      fetch(marketsUrl),
+      fetch(fundingRatesUrl),
     ]);
 
-    if (!contractsRes.ok) throw new Error(`HTTP ${contractsRes.status}`);
+    if (!marketsRes.ok)
+      throw new Error(`HTTP ${marketsRes.status} (stats/markets)`);
 
-    const data = (await contractsRes.json()) as DriftApiResponse;
-
-    if (!data.contracts || !Array.isArray(data.contracts)) {
-      console.warn("No contracts found in Drift response");
+    const marketsData = (await marketsRes.json()) as DriftMarketsResponse;
+    if (!marketsData.markets || !Array.isArray(marketsData.markets)) {
+      console.warn("No markets found in Drift stats response");
       return [];
     }
 
-    const results = data.contracts
-      .map((contract) => transformContract(contract, maxLeverageMap))
+    let fundingRatesMap = new Map<string, DriftFundingRatesMarket>();
+    let fundingRatesByIndex = new Map<number, DriftFundingRatesMarket>();
+
+    if (fundingRatesRes.ok) {
+      const fundingRatesData =
+        (await fundingRatesRes.json()) as DriftFundingRatesResponse;
+
+      if (Array.isArray(fundingRatesData.markets)) {
+        fundingRatesMap = new Map(
+          fundingRatesData.markets.map((item) => [
+            item.symbol.toUpperCase(),
+            item,
+          ]),
+        );
+        fundingRatesByIndex = new Map(
+          fundingRatesData.markets.map((item) => [item.marketIndex, item]),
+        );
+      }
+    } else {
+      console.warn(
+        `Failed to fetch Drift funding aggregates (stats/fundingRates): HTTP ${fundingRatesRes.status}`,
+      );
+    }
+
+    const results = marketsData.markets
+      .map((market) =>
+        transformMarket(market, fundingRatesMap, fundingRatesByIndex),
+      )
       .filter((v): v is MarketFundingData => v !== null);
 
     console.log(`✅ Fetched ${results.length} Drift funding rates`);
