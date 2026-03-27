@@ -134,9 +134,46 @@ function bigIntToUsdString(value: unknown, decimals = 18): string {
   return usd.toString();
 }
 
-function getImageFromMint(mint?: string): string {
-  if (!mint) return "";
-  return `https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/${mint}/logo.png`;
+/** Symbol → image URL map for GMXSol tokens. */
+const GMXSOL_IMAGE_MAP: Record<string, string> = {
+  SOL: "https://drift-public.s3.eu-central-1.amazonaws.com/assets/icons/markets/sol.svg",
+  BTC: "https://drift-public.s3.eu-central-1.amazonaws.com/assets/icons/markets/btc.svg",
+  ETH: "https://drift-public.s3.eu-central-1.amazonaws.com/assets/icons/markets/eth.svg",
+  USDC: "https://drift-public.s3.eu-central-1.amazonaws.com/assets/icons/markets/usdc.svg",
+  USDT: "https://drift-public.s3.eu-central-1.amazonaws.com/assets/icons/markets/usdt.svg",
+  JUP: "https://drift-public.s3.eu-central-1.amazonaws.com/assets/icons/markets/jup.svg",
+  BONK: "https://drift-public.s3.eu-central-1.amazonaws.com/assets/icons/markets/bonk.svg",
+  WIF: "https://drift-public.s3.eu-central-1.amazonaws.com/assets/icons/markets/wif.svg",
+  JTO: "https://drift-public.s3.eu-central-1.amazonaws.com/assets/icons/markets/jto.svg",
+  PYTH: "https://drift-public.s3.eu-central-1.amazonaws.com/assets/icons/markets/pyth.svg",
+  RNDR: "https://drift-public.s3.eu-central-1.amazonaws.com/assets/icons/markets/rndr.svg",
+  W: "https://drift-public.s3.eu-central-1.amazonaws.com/assets/icons/markets/w.svg",
+  TNSR: "https://drift-public.s3.eu-central-1.amazonaws.com/assets/icons/markets/tnsr.svg",
+  DOGE: "https://drift-public.s3.eu-central-1.amazonaws.com/assets/icons/markets/doge.svg",
+  SUI: "https://drift-public.s3.eu-central-1.amazonaws.com/assets/icons/markets/sui.svg",
+  APT: "https://drift-public.s3.eu-central-1.amazonaws.com/assets/icons/markets/apt.svg",
+  ARB: "https://drift-public.s3.eu-central-1.amazonaws.com/assets/icons/markets/arb.svg",
+  AVAX: "https://drift-public.s3.eu-central-1.amazonaws.com/assets/icons/markets/avax.svg",
+  LINK: "https://drift-public.s3.eu-central-1.amazonaws.com/assets/icons/markets/link.svg",
+  MATIC: "https://drift-public.s3.eu-central-1.amazonaws.com/assets/icons/markets/matic.svg",
+  OP: "https://drift-public.s3.eu-central-1.amazonaws.com/assets/icons/markets/op.svg",
+  PEPE: "https://drift-public.s3.eu-central-1.amazonaws.com/assets/icons/markets/pepe.svg",
+  SEI: "https://drift-public.s3.eu-central-1.amazonaws.com/assets/icons/markets/sei.svg",
+  TIA: "https://drift-public.s3.eu-central-1.amazonaws.com/assets/icons/markets/tia.svg",
+  INJ: "https://drift-public.s3.eu-central-1.amazonaws.com/assets/icons/markets/inj.svg",
+  HNT: "https://drift-public.s3.eu-central-1.amazonaws.com/assets/icons/markets/hnt.svg",
+  TRUMP: "https://drift-public.s3.eu-central-1.amazonaws.com/assets/icons/markets/trump.svg",
+  MELANIA: "https://drift-public.s3.eu-central-1.amazonaws.com/assets/icons/markets/melania.svg",
+};
+
+function getImageForSymbol(symbol?: string): string {
+  if (!symbol) return "";
+  const upper = symbol.toUpperCase();
+  // Try exact match first, fallback to Drift CDN pattern
+  return (
+    GMXSOL_IMAGE_MAP[upper] ||
+    `https://drift-public.s3.eu-central-1.amazonaws.com/assets/icons/markets/${upper.toLowerCase()}.svg`
+  );
 }
 
 function mapIndexTokenToMarket(
@@ -229,7 +266,7 @@ function mapIndexTokenToMarket(
     protocol: "gmxsol",
     symbol: `${baseSymbol}-PERP`,
     price: 0,
-    imageUrl: getImageFromMint(token.indexToken),
+    imageUrl: getImageForSymbol(baseSymbol),
     fundingRate: currentRate,
     maxleverage: clampedMaxLev,
     projections,

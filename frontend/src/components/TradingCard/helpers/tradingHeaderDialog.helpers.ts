@@ -51,6 +51,8 @@ export function filterPerps(
   if (!data) return [];
 
   const normalizedSearch = search.trim().toLowerCase();
+
+  // Apply protocol filter first
   const byProtocol =
     protocolFilter === "all"
       ? data
@@ -58,11 +60,18 @@ export function filterPerps(
 
   if (!normalizedSearch) return byProtocol;
 
-  return byProtocol.filter(
-    (perp) =>
-      perp.symbol.toLowerCase().includes(normalizedSearch) ||
-      perp.protocol.toLowerCase().includes(normalizedSearch),
-  );
+  return byProtocol.filter((perp) => {
+    // Strip -PERP suffix so searching "SOL" matches "SOL-PERP"
+    const baseSymbol = perp.symbol.replace(/-PERP$/i, "").toLowerCase();
+    const fullSymbol = perp.symbol.toLowerCase();
+    const protocol = perp.protocol.toLowerCase();
+
+    return (
+      baseSymbol.includes(normalizedSearch) ||
+      fullSymbol.includes(normalizedSearch) ||
+      protocol.includes(normalizedSearch)
+    );
+  });
 }
 
 export function getVisibleSymbols(

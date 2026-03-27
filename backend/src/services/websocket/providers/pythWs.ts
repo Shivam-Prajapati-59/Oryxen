@@ -35,55 +35,76 @@ export class PythWebSocket {
     const ids: string[] = [];
     const resolvedSymbols: string[] = [];
 
+    // Separate already-cached symbols from new ones
+    const toResolve: string[] = [];
     for (const symbol of symbols) {
       if (this.symbolToIdMap.has(symbol)) {
         ids.push(this.symbolToIdMap.get(symbol)!);
         resolvedSymbols.push(symbol);
-        continue;
-      }
-
-      try {
-        const url = `https://hermes.pyth.network/v2/price_feeds?query=${symbol}&asset_type=crypto`;
-        const response = await fetch(url);
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error(
-            `❌ [Pyth WS] Failed to fetch price feeds for ${symbol}: HTTP ${response.status} ${response.statusText}`,
-            errorText,
-          );
-          continue;
-        }
-
-        const data = (await response.json()) as any[];
-
-        // Exact matching logic to avoid matching "WBTC" when searching for "BTC"
-        const asset = data.find((item: any) => {
-          const displaySymbol = item.attributes.display_symbol;
-          const fullSymbol = item.attributes.symbol;
-          return (
-            displaySymbol === symbol ||
-            displaySymbol === `${symbol}/USD` ||
-            fullSymbol === `Crypto.${symbol}/USD`
-          );
-        });
-
-        if (asset) {
-          const normalizedId = asset.id.replace("0x", "").toLowerCase();
-          this.idToSymbolMap.set(normalizedId, symbol);
-          this.symbolToIdMap.set(symbol, asset.id);
-          ids.push(asset.id);
-          resolvedSymbols.push(symbol);
-          // console.log(`✓ [Pyth WS] Resolved ${symbol} to feed ID`);
-        } else {
-          console.warn(
-            `⚠️ [Pyth WS] No matching asset found for ${symbol} in Pyth feed data`,
-          );
-        }
-      } catch (error) {
-        console.error(`❌ [Pyth WS] Resolution error for ${symbol}:`, error);
+      } else {
+        toResolve.push(symbol);
       }
     }
+
+    if (toResolve.length === 0) return { ids, resolvedSymbols };
+
+    // Resolve all new symbols in parallel
+    const results = await Promise.all(
+      toResolve.map(async (symbol) => {
+        try {
+          const url = `https://hermes.pyth.network/v2/price_feeds?query=${symbol}&asset_type=crypto`;
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 10_000); // 10s timeout
+          const response = await fetch(url, { signal: controller.signal });
+          clearTimeout(timeoutId);
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error(
+              `❌ [Pyth WS] Failed to fetch price feeds for ${symbol}: HTTP ${response.status} ${response.statusText}`,
+              errorText,
+            );
+            return null;
+          }
+
+          const data = (await response.json()) as any[];
+
+          const asset = data.find((item: any) => {
+            const displaySymbol = item.attributes.display_symbol;
+            const fullSymbol = item.attributes.symbol;
+            return (
+              displaySymbol === symbol ||
+              displaySymbol === `${symbol}/USD` ||
+              fullSymbol === `Crypto.${symbol}/USD`
+            );
+          });
+
+          if (asset) {
+            return { symbol, id: asset.id };
+          } else {
+            console.warn(
+              `⚠️ [Pyth WS] No matching asset found for ${symbol} in Pyth feed data`,
+            );
+            return null;
+          }
+        } catch (error) {
+          console.error(`❌ [Pyth WS] Resolution error for ${symbol}:`, error);
+          return null;
+        }
+      }),
+    );
+
+    // Collect results
+    for (const result of results) {
+      if (result) {
+        const normalizedId = result.id.replace("0x", "").toLowerCase();
+        this.idToSymbolMap.set(normalizedId, result.symbol);
+        this.symbolToIdMap.set(result.symbol, result.id);
+        ids.push(result.id);
+        resolvedSymbols.push(result.symbol);
+      }
+    }
+
     return { ids, resolvedSymbols };
   }
 

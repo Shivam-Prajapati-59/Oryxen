@@ -17,13 +17,26 @@ import {
     SelectTrigger,
     SelectValue
 } from "../ui/select";
-import Image from "next/image";
+
 import { useProtocol } from "@/features/protocol-adapter/ProtocolContext";
 import { useDriftContext } from "@/features/drift/DriftContext";
 import { useGmxsolContext } from "@/features/gmxsol/GmxsolContext";
 import type { ExecuteTradeParams, TradeDirection, OrderVariant } from "@/features/drift/types";
 import type { ProtocolName, OrderType as GenericOrderType } from "@/features/protocol-adapter/types";
 import { toast } from "sonner";
+
+/** Detect wallet‑rejected / user‑cancelled errors so we can show a gentle toast instead of a red error. */
+function isUserCancellation(err: unknown): boolean {
+    const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+    return (
+        msg.includes("user rejected") ||
+        msg.includes("user denied") ||
+        msg.includes("cancelled") ||
+        msg.includes("canceled") ||
+        msg.includes("rejected the request") ||
+        msg.includes("user refused")
+    );
+}
 
 // Map dropdown display names to internal protocol names
 const PROTOCOL_NAME_MAP: Record<string, ProtocolName | null> = {
@@ -345,8 +358,12 @@ const TradingOrderPanel = ({ baseSymbol, marketIndex }: OrderPanelProps) => {
                 await handleDriftTrade(direction, baseAmount);
             }
         } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            toast.error(`Trade failed: ${message}`);
+            if (isUserCancellation(err)) {
+                toast.info("Transaction cancelled.");
+            } else {
+                const message = err instanceof Error ? err.message : String(err);
+                toast.error(`Trade failed: ${message}`);
+            }
         } finally {
             setIsTrading(false);
         }
@@ -451,20 +468,12 @@ const TradingOrderPanel = ({ baseSymbol, marketIndex }: OrderPanelProps) => {
                         </SelectTrigger>
                         <SelectContent>
                             <SelectItem value="SOL">
-                                <Image
-                                    src={"https://drift-public.s3.eu-central-1.amazonaws.com/assets/icons/markets/sol.svg"}
-                                    alt=""
-                                    width={25}
-                                    height={25}
-                                />
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src="https://drift-public.s3.eu-central-1.amazonaws.com/assets/icons/markets/sol.svg" alt="" width={20} height={20} className="rounded-full" />
                                 SOL</SelectItem>
                             <SelectItem value="USDC">
-                                <Image
-                                    src={"https://drift-public.s3.eu-central-1.amazonaws.com/assets/icons/markets/usdc.svg"}
-                                    alt=""
-                                    width={25}
-                                    height={25}
-                                />
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src="https://drift-public.s3.eu-central-1.amazonaws.com/assets/icons/markets/usdc.svg" alt="" width={20} height={20} className="rounded-full" />
                                 USDC</SelectItem>
                         </SelectContent>
                     </Select>

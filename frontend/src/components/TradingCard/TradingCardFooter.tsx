@@ -17,6 +17,20 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 
+/** Detect wallet-rejected / user-cancelled errors. */
+function isUserCancellation(err: unknown): boolean {
+    const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+    return (
+        msg.includes("user rejected") ||
+        msg.includes("user denied") ||
+        msg.includes("cancelled") ||
+        msg.includes("canceled") ||
+        msg.includes("rejected the request") ||
+        msg.includes("user refused") ||
+        msg.includes("transaction was not confirmed")
+    );
+}
+
 
 const formatUsd = (value: number): string => {
     if (Math.abs(value) < 0.01) return "$0.00";
@@ -37,7 +51,11 @@ const TradingCardFooter = () => {
             await gmsol.submitCloseOrder(orderAddress);
             toast.success("Order cancelled.");
         } catch (err) {
-            toast.error(err instanceof Error ? err.message : "Failed to cancel order");
+            if (isUserCancellation(err)) {
+                toast.info("Cancel aborted.");
+            } else {
+                toast.error(err instanceof Error ? err.message : "Failed to cancel order");
+            }
         } finally {
             setCancellingOrder(null);
         }

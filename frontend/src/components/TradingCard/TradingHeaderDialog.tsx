@@ -1,8 +1,8 @@
 import { PerpFundingRate } from "@/hooks/useFundingRates";
 import { usePriceFeed } from "@/hooks/usePriceFeed";
 import React, { useMemo, useState, useEffect, useRef } from "react";
-import { Search, Activity, XCircle, ArrowUp, ArrowDown } from "lucide-react";
-import Image from "next/image";
+import { Search, XCircle, ArrowUp, ArrowDown } from "lucide-react";
+
 import { Input } from "@/components/ui/input";
 import {
     Select,
@@ -53,12 +53,14 @@ const Icon = ({ url, symbol }: { url?: string; symbol: string }) => {
     }
 
     return (
-        <Image
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
             src={url}
             alt={symbol}
-            fill
-            className="rounded-full object-cover"
+            className="w-full h-full rounded-full object-cover"
             onError={() => setError(true)}
+            loading="eager"
+            decoding="async"
         />
     );
 };
@@ -173,10 +175,10 @@ const TradingHeaderDialog = ({ onClose, onSelectMarket, markets: data, isLoading
     const headerButtonClass = "inline-flex items-center justify-end gap-1 hover:text-foreground transition-colors";
 
     if (isLoading) return (
-        <div className="flex h-96 w-full items-center justify-center bg-background/50 backdrop-blur-sm rounded-xl">
-            <div className="flex flex-col items-center gap-2">
-                <Activity className="w-8 h-8 animate-pulse text-primary" />
-                <span className="text-xs font-mono text-muted-foreground uppercase tracking-widest">Syncing Markets</span>
+        <div className="flex h-96 w-full items-center justify-center bg-background rounded-xl">
+            <div className="flex flex-col items-center gap-3">
+                <div className="w-6 h-6 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+                <span className="text-xs text-muted-foreground">Loading markets…</span>
             </div>
         </div>
     );
