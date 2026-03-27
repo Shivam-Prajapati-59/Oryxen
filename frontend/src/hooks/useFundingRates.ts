@@ -14,6 +14,14 @@ export interface PerpFundingMetadata {
   high24h: string;
   low24h: string;
   volume24h: string;
+  gmxsolRates?: {
+    longHourly: number;
+    shortHourly: number;
+  };
+  driftRates?: {
+    longHourly: number | null;
+    shortHourly: number | null;
+  };
 }
 
 export interface FundingProjections {

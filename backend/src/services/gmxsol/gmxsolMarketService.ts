@@ -3,6 +3,19 @@ type GmxsolSocketMessage = {
   payload?: unknown;
 };
 
+type GmxsolMarketInfo = {
+  longFundingFeeRateHour?: string;
+  shortFundingFeeRateHour?: string;
+  longBorrowingFeeRateHour?: string;
+  shortBorrowingFeeRateHour?: string;
+  longNetRatePerHour?: string;
+  shortNetRatePerHour?: string;
+  openInterestForLong?: string;
+  openInterestForShort?: string;
+  volume24h?: string;
+  unitPrice?: string;
+};
+
 type GmxsolIndexToken = {
   symbol?: string;
   indexToken?: string;
@@ -11,6 +24,7 @@ type GmxsolIndexToken = {
   unitPrice?: string;
   volume24h?: string;
   maxLeverage?: number | string;
+  marketInfos?: GmxsolMarketInfo[];
 };
 
 type GmxsolApiMarket = {
@@ -48,12 +62,19 @@ type GmxsolApiMarket = {
       volume24h: boolean;
       openInterest: boolean;
     };
+    gmxsolRates?: {
+      longHourly: number;
+      shortHourly: number;
+    };
   };
 };
 
 const GMXSOL_WS_URL = "wss://api.gmtrade.xyz/ws";
 const SOCKET_TIMEOUT_MS = 8_000;
 const RECONNECT_DELAY_MS = 2_000;
+const DEBUG_GMXSOL = ["1", "true", "yes", "on"].includes(
+  (process.env.DEBUG_GMXSOL ?? "").toLowerCase(),
+);
 
 const EMPTY_PROJECTIONS = {
   current: 0,
@@ -95,6 +116,24 @@ function toStringSafe(value: unknown): string {
   return String(value);
 }
 
+/** Convert an 18-decimal fixed-point string to a JS number (1e18 = 1.0). */
+function bigIntToFloat(value: unknown, decimals = 18): number {
+  const big = parseBigInt(value);
+  if (big === null) return 0;
+  // Convert to float: shift by `decimals` places
+  const divisor = 10 ** decimals;
+  return Number(big) / divisor;
+}
+
+/** Convert an 18-decimal fixed-point string to a USD string (no decimals). */
+function bigIntToUsdString(value: unknown, decimals = 18): string {
+  const big = parseBigInt(value);
+  if (big === null) return "";
+  const divisor = 10n ** BigInt(decimals);
+  const usd = big / divisor;
+  return usd.toString();
+}
+
 function getImageFromMint(mint?: string): string {
   if (!mint) return "";
   return `https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/${mint}/logo.png`;
@@ -107,48 +146,93 @@ function mapIndexTokenToMarket(
   const baseSymbol = token.symbol?.trim().toUpperCase();
   if (!baseSymbol) return null;
 
-  const longOiBig = parseBigInt(token.LongOpenInterest);
-  const shortOiBig = parseBigInt(token.shortOpenInterest);
+  // --- Pick the marketInfo with the highest total OI (best liquidity) ---
+  const mktInfo = (() => {
+    const infos = token.marketInfos;
+    if (!infos || infos.length === 0) return undefined;
+    if (infos.length === 1) return infos[0];
+    // Select the entry with the highest combined OI
+    let best = infos[0];
+    let bestOi = 0n;
+    for (const info of infos) {
+      const longOi = parseBigInt(info.openInterestForLong) ?? 0n;
+      const shortOi = parseBigInt(info.openInterestForShort) ?? 0n;
+      const total =
+        (longOi < 0n ? -longOi : longOi) + (shortOi < 0n ? -shortOi : shortOi);
+      if (total > bestOi) {
+        bestOi = total;
+        best = info;
+      }
+    }
+    return best;
+  })();
 
-  const openInterestBig =
+  // --- Open Interest: use top-level aggregate (sums all markets) ---
+  const longOiStr = token.LongOpenInterest;
+  const shortOiStr = token.shortOpenInterest;
+  const longOiBig = parseBigInt(longOiStr);
+  const shortOiBig = parseBigInt(shortOiStr);
+
+  // Total OI = long + short (both in 18-decimal USD)
+  const totalOiBig =
     longOiBig !== null || shortOiBig !== null
-      ? (() => {
-          const left =
-            longOiBig !== null ? (longOiBig < 0n ? -longOiBig : longOiBig) : 0n;
-          const right =
-            shortOiBig !== null
-              ? shortOiBig < 0n
-                ? -shortOiBig
-                : shortOiBig
-              : 0n;
-          return left > right ? left : right;
-        })()
+      ? (longOiBig !== null ? (longOiBig < 0n ? -longOiBig : longOiBig) : 0n) +
+        (shortOiBig !== null
+          ? shortOiBig < 0n
+            ? -shortOiBig
+            : shortOiBig
+          : 0n)
       : null;
 
+  // Convert from 18-decimal to USD string
   const openInterestValue =
-    openInterestBig !== null
-      ? openInterestBig.toString()
-      : (() => {
-          const longOi = parseNumberOrZero(token.LongOpenInterest);
-          const shortOi = parseNumberOrZero(token.shortOpenInterest);
-          const fallback = Math.max(Math.abs(longOi), Math.abs(shortOi));
-          return fallback > 0 ? String(fallback) : "";
-        })();
+    totalOiBig !== null ? (totalOiBig / 10n ** 18n).toString() : "";
 
+  // --- Volume 24h: use marketInfos if available, else top-level ---
+  const vol24hRaw = mktInfo?.volume24h ?? toStringSafe(token.volume24h);
+  const volume24h = bigIntToUsdString(vol24hRaw, 18) || toStringSafe(vol24hRaw);
+
+  // --- Price ---
   const indexPrice = toStringSafe(token.unitPrice) || "0";
-  const volume24h = toStringSafe(token.volume24h);
-  const maxLeverageRaw = parseNumberOrZero(token.maxLeverage);
-  const maxLeverage =
-    maxLeverageRaw > 0 && maxLeverageRaw <= 500 ? maxLeverageRaw : 50;
+
+  // --- Max Leverage: value is in 18-decimal format (e.g. "20000000000000000000000" = 20000, then ÷ 1000 = 20x) ---
+  const maxLevRaw = bigIntToFloat(token.maxLeverage, 18);
+  const maxLeverage = maxLevRaw > 0 ? Math.round(maxLevRaw / 1000) : 50;
+  const clampedMaxLev =
+    maxLeverage > 0 && maxLeverage <= 500 ? maxLeverage : 50;
+
+  // --- Funding/Borrowing rates from marketInfos ---
+  // The WS API returns rates already scaled as percentages (i.e. 1e18 = 1%).
+  // We divide by 10^20 here to convert them into a standard decimal ratio (i.e. 0.01 = 1%)
+  // because the frontend code multiplies by 100 before formatting with a '%' sign.
+  const longNetRateHourly = bigIntToFloat(mktInfo?.longNetRatePerHour, 20);
+  const shortNetRateHourly = bigIntToFloat(mktInfo?.shortNetRatePerHour, 20);
+
+  // Use long net rate as the "current" funding rate (convention: positive = longs pay)
+  const currentRate = longNetRateHourly;
+  const hasRateData = mktInfo?.longNetRatePerHour !== undefined;
+
+  const projections = hasRateData
+    ? {
+        current: currentRate,
+        h4: currentRate * 4,
+        h8: currentRate * 8,
+        h12: currentRate * 12,
+        d1: currentRate * 24,
+        d7: currentRate * 24 * 7,
+        d30: currentRate * 24 * 30,
+        apr: currentRate * 24 * 365,
+      }
+    : { ...EMPTY_PROJECTIONS };
 
   return {
     protocol: "gmxsol",
     symbol: `${baseSymbol}-PERP`,
     price: 0,
     imageUrl: getImageFromMint(token.indexToken),
-    fundingRate: 0,
-    maxleverage: maxLeverage,
-    projections: { ...EMPTY_PROJECTIONS },
+    fundingRate: currentRate,
+    maxleverage: clampedMaxLev,
+    projections,
     timestamp: Date.now(),
     metadata: {
       contractIndex,
@@ -156,16 +240,20 @@ function mapIndexTokenToMarket(
       quoteCurrency: "USD",
       openInterest: openInterestValue,
       indexPrice,
-      nextFundingRate: "",
+      nextFundingRate: toStringSafe(mktInfo?.longNetRatePerHour),
       nextFundingRateTimestamp: "0",
       high24h: "0",
       low24h: "0",
       volume24h,
       dataAvailability: {
-        apr: false,
-        d7: false,
+        apr: hasRateData,
+        d7: hasRateData,
         volume24h: volume24h !== "",
         openInterest: openInterestValue !== "",
+      },
+      gmxsolRates: {
+        longHourly: longNetRateHourly,
+        shortHourly: shortNetRateHourly,
       },
     },
   };
@@ -184,6 +272,14 @@ function notifyInitialSnapshotReady() {
 }
 
 function updateFromIndexTokens(tokens: GmxsolIndexToken[]) {
+  if (DEBUG_GMXSOL && tokens.length > 0) {
+    console.log(`\n[GMXSol WS] Received ${tokens.length} tokens.`);
+    const btc = tokens.find((t) => t.symbol === "BTC");
+    if (btc) {
+      console.log("[GMXSol WS] Raw BTC Data:", JSON.stringify(btc, null, 2));
+    }
+  }
+
   const mapped = tokens
     .map((token, idx) => mapIndexTokenToMarket(token, idx))
     .filter((market): market is GmxsolApiMarket => market !== null);

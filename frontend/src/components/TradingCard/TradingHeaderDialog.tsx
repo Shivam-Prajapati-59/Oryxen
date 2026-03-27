@@ -1,7 +1,7 @@
 import { PerpFundingRate } from "@/hooks/useFundingRates";
 import { usePriceFeed } from "@/hooks/usePriceFeed";
 import React, { useMemo, useState, useEffect, useRef } from "react";
-import { Search, Activity, XCircle, TrendingUp } from "lucide-react";
+import { Search, Activity, XCircle, ArrowUp, ArrowDown } from "lucide-react";
 import Image from "next/image";
 import { Input } from "@/components/ui/input";
 import {
@@ -11,6 +11,19 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
+import {
+    extractFundingRates,
+    filterPerps,
+    formatBigNumber,
+    formatPrice,
+    formatSignedRate,
+    getSortIndicatorState,
+    getVisibleSymbols,
+    nextSortState,
+    sortPerps,
+    SortKey,
+    SortState,
+} from "./helpers/tradingHeaderDialog.helpers";
 
 interface TradingHeaderDialogProps {
     onClose: () => void;
@@ -21,9 +34,9 @@ interface TradingHeaderDialogProps {
 }
 
 const ITEM_HEIGHT = 56;
-const TABLE_COLS = "minmax(130px, 2fr) minmax(80px, 1.2fr) minmax(70px, 1fr) minmax(80px, 1fr) minmax(70px, 1fr) minmax(70px, 1fr)";
+const TABLE_COLS = "minmax(130px, 2fr) minmax(80px, 1.2fr) minmax(120px, 1.5fr) minmax(70px, 1fr) minmax(70px, 1fr)";
 
-const AssetIcon = ({ url, symbol }: { url?: string; symbol: string }) => {
+const Icon = ({ url, symbol }: { url?: string; symbol: string }) => {
     const [error, setError] = useState(false);
 
     useEffect(() => { setError(false); }, [url]);
@@ -53,36 +66,56 @@ const AssetIcon = ({ url, symbol }: { url?: string; symbol: string }) => {
 const TradingHeaderDialog = ({ onClose, onSelectMarket, markets: data, isLoading, error }: TradingHeaderDialogProps) => {
     const [search, setSearch] = useState("");
     const [protocolFilter, setProtocolFilter] = useState<"all" | "drift" | "gmxsol">("all");
+    const [sortState, setSortState] = useState<SortState>({ sortKey: null, sortDirection: null });
 
     const [visibleRange, setVisibleRange] = useState({ start: 0, end: 20 });
     const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-    const filteredPerps = useMemo(() => {
-        if (!data) return [];
+    const filteredPerps = useMemo(
+        () => filterPerps(data, protocolFilter, search),
+        [data, protocolFilter, search],
+    );
 
-        const byProtocol = protocolFilter === "all"
-            ? data
-            : data.filter((perp) => perp.protocol.toLowerCase() === protocolFilter);
+    const sortedPerps = useMemo(
+        () => sortPerps(filteredPerps, sortState),
+        [filteredPerps, sortState],
+    );
 
-        return byProtocol.filter(
-            (perp) =>
-                perp.symbol.toLowerCase().includes(search.toLowerCase()) ||
-                perp.protocol.toLowerCase().includes(search.toLowerCase())
+    const visibleSymbols = useMemo(
+        () => getVisibleSymbols(sortedPerps, visibleRange),
+        [sortedPerps, visibleRange],
+    );
+
+    const { prices } = usePriceFeed(visibleSymbols);
+
+    const handleSort = (key: SortKey) => {
+        setSortState((prev) => nextSortState(prev, key));
+    };
+
+    const sortArrow = (key: SortKey) => {
+        const indicator = getSortIndicatorState(sortState, key);
+
+        if (indicator === "neutral") {
+            return (
+                <span className="inline-flex items-center -space-x-1">
+                    <ArrowUp className="w-3 h-3 opacity-35" />
+                    <ArrowDown className="w-3 h-3 opacity-35" />
+                </span>
+            );
+        }
+
+        return indicator === "asc" ? (
+            <span className="inline-flex items-center -space-x-1">
+                <ArrowUp className="w-3 h-3 text-foreground" />
+                <ArrowDown className="w-3 h-3 opacity-20" />
+            </span>
+        ) : (
+            <span className="inline-flex items-center -space-x-1">
+                <ArrowUp className="w-3 h-3 opacity-20" />
+                <ArrowDown className="w-3 h-3 text-foreground" />
+            </span>
         );
-    }, [data, search, protocolFilter]);
-
-    const visibleSymbols = useMemo(() => {
-        const buffer = 8;
-        const start = Math.max(0, visibleRange.start - buffer);
-        const end = Math.min(filteredPerps.length, visibleRange.end + buffer);
-
-        return filteredPerps
-            .slice(start, end)
-            .map((perp) => perp.symbol.replace(/-PERP$/i, ""))
-            .filter((symbol, index, self) => self.indexOf(symbol) === index);
-    }, [filteredPerps, visibleRange]);
-
-    const { prices, isConnected } = usePriceFeed(visibleSymbols);
+    };
 
     useEffect(() => {
         const container = scrollContainerRef.current;
@@ -104,28 +137,40 @@ const TradingHeaderDialog = ({ onClose, onSelectMarket, markets: data, isLoading
         if (scrollContainerRef.current) {
             scrollContainerRef.current.scrollTop = 0;
         }
-    }, [search, protocolFilter]);
+    }, [search, protocolFilter, sortState]);
 
-    const formatPrice = (price: number | null | undefined): string => {
-        if (!price || isNaN(price)) return "-";
-        if (price >= 1000) return `$${price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-        if (price >= 1) return `$${price.toFixed(4)}`;
-        return `$${price.toFixed(6)}`;
+    const renderRateWithArrow = (rate: number | undefined) => {
+        if (rate === undefined || Number.isNaN(rate)) {
+            return <span className="text-muted-foreground">-</span>;
+        }
+
+        const isPositive = rate >= 0;
+        const colorClass = isPositive ? "text-emerald-500" : "text-rose-500";
+
+        return (
+            <span className={`inline-flex items-center gap-1 ${colorClass}`}>
+                <span>{formatSignedRate(rate)}</span>
+            </span>
+        );
     };
 
-    const formatNumber = (num: number | undefined, suffix: string = "") => {
-        if (num === undefined) return "-";
-        return `${(num * 100).toFixed(2)}%${suffix}`;
+    const getFundingRateDisplay = (perp: PerpFundingRate) => {
+        const { longRate, shortRate } = extractFundingRates(perp);
+
+        if (longRate === undefined && shortRate === undefined) {
+            return <span className="text-muted-foreground">-</span>;
+        }
+
+        return (
+            <span className="inline-flex items-center justify-end gap-2">
+                {renderRateWithArrow(longRate)}
+                <span className="text-muted-foreground">/</span>
+                {renderRateWithArrow(shortRate)}
+            </span>
+        );
     };
 
-    const formatBigNumber = (valStr: string | undefined) => {
-        if (!valStr) return "-";
-        const val = parseFloat(valStr);
-        if (isNaN(val)) return "-";
-        if (val >= 1_000_000) return `$${(val / 1_000_000).toFixed(1)}M`;
-        if (val >= 1_000) return `$${(val / 1_000).toFixed(1)}K`;
-        return `$${val.toFixed(0)}`;
-    };
+    const headerButtonClass = "inline-flex items-center justify-end gap-1 hover:text-foreground transition-colors";
 
     if (isLoading) return (
         <div className="flex h-96 w-full items-center justify-center bg-background/50 backdrop-blur-sm rounded-xl">
@@ -147,10 +192,7 @@ const TradingHeaderDialog = ({ onClose, onSelectMarket, markets: data, isLoading
 
     return (
         <div className="flex flex-col h-full w-full overflow-hidden bg-background border border-border">
-
-            {/* --- Header Search Section: Increaced px-3 to px-6 --- */}
             <div className="flex items-center gap-3 px-6 py-3 bg-background border-b border-border">
-                {/* Search input */}
                 <div className="relative flex-1">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none z-10" />
                     <Input
@@ -171,7 +213,6 @@ const TradingHeaderDialog = ({ onClose, onSelectMarket, markets: data, isLoading
                     )}
                 </div>
 
-                {/* Protocol filter */}
                 <Select
                     value={protocolFilter}
                     onValueChange={(value: "all" | "drift" | "gmxsol") => setProtocolFilter(value)}
@@ -187,30 +228,36 @@ const TradingHeaderDialog = ({ onClose, onSelectMarket, markets: data, isLoading
                 </Select>
             </div>
 
-            {/* --- Table Headers: Increased px-4 to px-6 --- */}
-            <div className="grid gap-2 px-6 py-2 bg-muted/30 border-b border-border text-[10px] font-bold uppercase tracking-widest text-muted-foreground select-none"
+            <div className="grid gap-2 px-6 py-2 bg-muted/30 border-b border-border text-[15px] font-bold text-muted-foreground select-none font-mono"
                 style={{ gridTemplateColumns: TABLE_COLS }}>
-                <span className="flex items-center gap-1">Asset</span>
-                <span className="text-right">Price</span>
-                <span className="text-right flex items-center justify-end gap-1">APR <TrendingUp className="w-3 h-3" /></span>
-                <span className="text-right">7D APR</span>
-                <span className="text-right">24h Vol</span>
-                <span className="text-right">OI</span>
+                <button onClick={() => handleSort("asset")} className="inline-flex items-center gap-1 hover:text-foreground transition-colors text-left">
+                    Market {sortArrow("asset")}
+                </button>
+                <button onClick={() => handleSort("price")} className={headerButtonClass}>
+                    Price {sortArrow("price")}
+                </button>
+                <button onClick={() => handleSort("funding")} className={headerButtonClass}>
+                    Funding Rate {sortArrow("funding")}
+                </button>
+                <button onClick={() => handleSort("volume24h")} className={headerButtonClass}>
+                    24h Vol {sortArrow("volume24h")}
+                </button>
+                <button onClick={() => handleSort("openInterest")} className={headerButtonClass}>
+                    OI {sortArrow("openInterest")}
+                </button>
             </div>
 
-            {/* --- Scrollable List --- */}
             <div
                 ref={scrollContainerRef}
                 className="flex-1 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] bg-background relative"
             >
-                {filteredPerps.length > 0 ? (
-                    <div className="relative w-full" style={{ height: `${filteredPerps.length * ITEM_HEIGHT}px` }}>
-                        {filteredPerps.slice(visibleRange.start, visibleRange.end).map((perp, idx) => {
+                {sortedPerps.length > 0 ? (
+                    <div className="relative w-full" style={{ height: `${sortedPerps.length * ITEM_HEIGHT}px` }}>
+                        {sortedPerps.slice(visibleRange.start, visibleRange.end).map((perp, idx) => {
                             const absoluteIndex = visibleRange.start + idx;
                             const baseSymbol = perp.symbol.replace(/-PERP$/i, "");
                             const price = prices[baseSymbol] ?? perp.price;
-                            const fundingPositive = (perp.projections?.apr || 0) > 0;
-                            const sevenDayPositive = (perp.projections?.d7 || 0) > 0;
+                            const fundingRateDisplay = getFundingRateDisplay(perp);
 
                             return (
                                 <div
@@ -219,8 +266,7 @@ const TradingHeaderDialog = ({ onClose, onSelectMarket, markets: data, isLoading
                                         onSelectMarket(perp);
                                         onClose();
                                     }}
-                                    // Increased px-4 to px-6 here as well
-                                    className="absolute left-0 right-0 grid gap-2 items-center px-6 border-b border-border/40 hover:bg-secondary/60 cursor-pointer transition-all group"
+                                    className="absolute left-0 right-0 grid gap-3 items-center px-6 border-b border-border/40 hover:bg-secondary/60 cursor-pointer transition-all group"
                                     style={{
                                         gridTemplateColumns: TABLE_COLS,
                                         top: `${absoluteIndex * ITEM_HEIGHT}px`,
@@ -228,8 +274,8 @@ const TradingHeaderDialog = ({ onClose, onSelectMarket, markets: data, isLoading
                                     }}
                                 >
                                     <div className="flex items-center gap-2 overflow-hidden">
-                                        <div className="relative w-6 h-6 shrink-0 rounded-full overflow-hidden">
-                                            <AssetIcon url={perp.imageUrl} symbol={perp.symbol} />
+                                        <div className="relative w-8 h-8 shrink-0 rounded-full overflow-hidden">
+                                            <Icon url={perp.imageUrl} symbol={perp.symbol} />
                                         </div>
                                         <div className="flex flex-col leading-tight min-w-0">
                                             <span className="text-sm font-semibold text-secondary-foreground truncate">
@@ -240,21 +286,20 @@ const TradingHeaderDialog = ({ onClose, onSelectMarket, markets: data, isLoading
                                             </span>
                                         </div>
                                     </div>
+                                    {/* Price column */}
                                     <div className="text-right truncate">
                                         <div className="font-mono text-sm font-medium text-foreground tracking-tight">
                                             {formatPrice(price)}
                                         </div>
                                     </div>
-                                    <div className={`text-right font-mono text-xs font-medium truncate ${fundingPositive ? "text-emerald-500" : "text-rose-500"}`}>
-                                        {formatNumber(perp.projections?.apr)}
+                                    {/* Funding rate column — whitespace-nowrap ensures L/S never wraps or clips */}
+                                    <div className="text-right font-mono text-sm font-medium truncate text-foreground">
+                                        {fundingRateDisplay}
                                     </div>
-                                    <div className={`text-right font-mono text-xs font-medium truncate ${sevenDayPositive ? "text-emerald-500" : "text-rose-500"}`}>
-                                        {formatNumber(perp.projections?.d7)}
-                                    </div>
-                                    <div className="text-right font-mono text-xs text-muted-foreground truncate">
+                                    <div className="text-right font-mono text-sm text-muted-foreground truncate">
                                         {formatBigNumber(perp.metadata?.volume24h)}
                                     </div>
-                                    <div className="text-right font-mono text-xs text-muted-foreground truncate">
+                                    <div className="text-right font-mono text-sm text-muted-foreground truncate">
                                         {formatBigNumber(perp.metadata?.openInterest)}
                                     </div>
                                 </div>

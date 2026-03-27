@@ -120,6 +120,17 @@ function getCurrentFundingRate(market: DriftMarketSummary): number | null {
   return null;
 }
 
+function getDriftLongShortFundingRates(market: DriftMarketSummary): {
+  long: number | null;
+  short: number | null;
+} {
+  const symbol = market.symbol.toUpperCase();
+  return {
+    long: parseNumber(market.fundingRate?.long, "fundingRate.long", symbol),
+    short: parseNumber(market.fundingRate?.short, "fundingRate.short", symbol),
+  };
+}
+
 function transformMarket(
   market: DriftMarketSummary,
   fundingRatesBySymbol: Map<string, DriftFundingRatesMarket>,
@@ -128,6 +139,7 @@ function transformMarket(
   if (!isValidPerpMarket(market)) return null;
 
   const symbol = market.symbol.toUpperCase();
+  const sideRates = getDriftLongShortFundingRates(market);
   const currentFundingRate = getCurrentFundingRate(market);
   const price =
     parseNumber(market.price, "price", symbol) ??
@@ -201,6 +213,10 @@ function transformMarket(
       high24h: market.priceHigh?.oracle ?? market.priceHigh?.fill,
       low24h: market.priceLow?.oracle ?? market.priceLow?.fill,
       volume24h: market.quoteVolume,
+      driftRates: {
+        longHourly: sideRates.long,
+        shortHourly: sideRates.short,
+      },
     },
   };
 }
