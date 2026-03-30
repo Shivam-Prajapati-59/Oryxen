@@ -19,7 +19,7 @@ export default function PrivyProviders({ children }: { children: React.ReactNode
                         createOnLogin: 'all-users' // Changed to 'all-users' to ensure embedded wallet is always created
                     },
                     solana: {
-                        createOnLogin: 'users-without-wallets'
+                        createOnLogin: 'all-users'
                     }
                 },
 
