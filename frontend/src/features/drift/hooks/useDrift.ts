@@ -28,6 +28,7 @@ import type {
   OrderVariant,
   TradeDirection,
 } from "../types";
+import { usePrivy } from "@privy-io/react-auth";
 
 export const useDrift = () => {
   const { wallets } = useWallets();
@@ -51,7 +52,16 @@ export const useDrift = () => {
   const connection = useMemo(() => getDriftConnection(), []);
 
   const privyWallet = useMemo(() => {
-    return wallets.find((w) => isValidSolanaAddress(w.address)) ?? null;
+    // Always prefer the Privy embedded wallet over external wallets (Solflare, Phantom, etc.)
+    return (
+      wallets.find((w) => {
+        const name = w.standardWallet?.name?.toLowerCase() ?? "";
+        return (
+          (name === "privy" || name.includes("privy")) &&
+          isValidSolanaAddress(w.address)
+        );
+      }) ?? null
+    );
   }, [wallets]);
 
   // ─── Helpers ───────────────────────────────────────────────────────

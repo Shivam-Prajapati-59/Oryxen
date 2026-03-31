@@ -1,6 +1,7 @@
 'use client';
 
 import { PrivyProvider } from '@privy-io/react-auth';
+import { toSolanaWalletConnectors } from '@privy-io/react-auth/solana';
 import { createSolanaRpc, createSolanaRpcSubscriptions } from '@solana/kit';
 import { arbitrum, arbitrumSepolia, base, baseSepolia, berachain, polygon, sepolia } from 'viem/chains';
 
@@ -13,6 +14,8 @@ export default function PrivyProviders({ children }: { children: React.ReactNode
         <PrivyProvider
             appId={privy_app_id}
             config={{
+                appearance: { walletChainType: 'ethereum-and-solana' },
+                externalWallets: { solana: { connectors: toSolanaWalletConnectors() } },
                 // Create embedded wallets for BOTH Ethereum and Solana
                 embeddedWallets: {
                     ethereum: {

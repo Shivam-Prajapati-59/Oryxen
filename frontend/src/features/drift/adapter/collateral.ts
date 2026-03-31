@@ -41,7 +41,10 @@ export async function deposit(
   let tokenBalance: BN;
   if (symbol === "SOL") {
     const lamports = await connection.getBalance(walletPubkey);
-    tokenBalance = new BN(lamports);
+    // Reserve ~0.01 SOL for transaction fees and rent-exempt minimums
+    const FEE_RESERVE_LAMPORTS = 10_000_000; // 0.01 SOL
+    const spendable = Math.max(0, lamports - FEE_RESERVE_LAMPORTS);
+    tokenBalance = new BN(spendable);
   } else {
     try {
       const info = await connection.getTokenAccountBalance(

@@ -66,7 +66,14 @@ export const useGmsol = () => {
 
   // ── Privy Solana wallet ────────────────────────────────────────────
   const privyWallet = useMemo(
-    () => wallets.find((w) => isValidSolanaAddress(w.address)) ?? null,
+    () =>
+      wallets.find((w) => {
+        const name = w.standardWallet?.name?.toLowerCase() ?? "";
+        return (
+          (name === "privy" || name.includes("privy")) &&
+          isValidSolanaAddress(w.address)
+        );
+      }) ?? null,
     [wallets],
   );
 

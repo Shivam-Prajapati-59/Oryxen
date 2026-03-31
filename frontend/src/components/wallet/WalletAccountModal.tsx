@@ -4,79 +4,21 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Check, Copy, ExternalLink, UserCircle2, Loader2, RefreshCw } from "lucide-react";
 import {
-    useFundWallet as useFundEthereumWallet,
     usePrivy,
     WalletWithMetadata,
 } from "@privy-io/react-auth";
-import { useFundWallet as useFundSolanaWallet } from "@privy-io/react-auth/solana";
+import { useFundWallet } from "@privy-io/react-auth/solana";
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
-import { CHAIN_ICONS } from "@/constants/chains";
 import { cn } from "@/lib/utils";
-import { SOLANA_NETWORK, SOLANA_RPC_URL } from "@/config/env";
-import { Connection, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
-import { Contract, JsonRpcProvider, formatUnits } from "ethers";
-
-const ETHEREUM_RPC_URL =
-    process.env.NEXT_PUBLIC_ETHEREUM_RPC_URL || "https://ethereum-rpc.publicnode.com";
-const ETHEREUM_USDC_ADDRESS = "0xA0b86991c6218b36c1d19d4a2e9eb0ce3606eb48";
-const ERC20_BALANCE_ABI = [
-    "function balanceOf(address owner) view returns (uint256)",
-] as const;
-const TOKEN_ICONS: Record<string, string> = {
-    SOL: CHAIN_ICONS.solana,
-    USDC: "https://drift-public.s3.eu-central-1.amazonaws.com/assets/icons/markets/usdc.svg",
-};
-
-const solanaConnection = new Connection(SOLANA_RPC_URL, "confirmed");
-const ethereumProvider = new JsonRpcProvider(ETHEREUM_RPC_URL);
-const usdcContract = new Contract(
-    ETHEREUM_USDC_ADDRESS,
-    ERC20_BALANCE_ABI,
-    ethereumProvider,
-);
-
-const formatBalance = (value: number) => {
-    if (!Number.isFinite(value)) return "--";
-    return new Intl.NumberFormat("en-US", {
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 4,
-    }).format(value);
-};
-
-const getSolBalance = async (address: string) => {
-    const publicKey = new PublicKey(address);
-    const lamports = await solanaConnection.getBalance(publicKey);
-    return lamports / LAMPORTS_PER_SOL;
-};
-
-const getEthereumUsdcBalance = async (address: string) => {
-    const rawBalance = (await usdcContract.balanceOf(address)) as bigint;
-    return Number(formatUnits(rawBalance, 6));
-};
-
-const getWalletTokenLabel = (chainType?: string) => {
-    if (chainType === "solana") return "SOL";
-    if (chainType === "ethereum") return "USDC";
-    return "";
-};
-
-const getWalletTokenIcon = (chainType?: string) => {
-    const token = getWalletTokenLabel(chainType);
-    return TOKEN_ICONS[token] || CHAIN_ICONS.ethereum;
-};
-
-const getWalletNetworkLabel = (chainType?: string) => {
-    if (chainType === "solana") return "Solana";
-    if (chainType === "ethereum") return "Base";
-    return chainType || "Unknown";
-};
-
-const getWalletNetworkIcon = (chainType?: string) => {
-    if (chainType === "solana") return CHAIN_ICONS.solana;
-    if (chainType === "ethereum") return CHAIN_ICONS.base;
-    return CHAIN_ICONS.ethereum;
-};
+import { SOLANA_NETWORK } from "@/config/env";
+import {
+    getWalletNetworkIcon,
+    getWalletNetworkLabel,
+    getWalletTokenIcon,
+    getWalletTokenLabel,
+} from "@/config/walletAccountModal";
+import { getWalletBalanceLabel } from "@/lib/walletAccountModal";
 
 export default function WalletAccountModal({
     open,
@@ -86,8 +28,7 @@ export default function WalletAccountModal({
     onClose: () => void;
 }) {
     const { user, logout } = usePrivy();
-    const { fundWallet: fundEthereumWallet } = useFundEthereumWallet();
-    const { fundWallet: fundSolanaWallet } = useFundSolanaWallet();
+    const { fundWallet } = useFundWallet();
 
     const [copied, setCopied] = useState<string | null>(null);
     const [isDisconnecting, setIsDisconnecting] = useState(false);
@@ -112,35 +53,29 @@ export default function WalletAccountModal({
         return wallets.find((wallet) => wallet.address === currentAddress) ?? wallets[0];
     }, [wallets, user?.wallet?.address]);
 
+    const fundingWallet = useMemo(() => {
+        if (!wallets.length) return undefined;
+
+        if (primaryWallet?.chainType === "solana") {
+            return primaryWallet;
+        }
+
+        return wallets.find((wallet) => wallet.chainType === "solana");
+    }, [wallets, primaryWallet]);
+
     const shorten = (addr?: string) => addr ? `${addr.slice(0, 5)}...${addr.slice(-5)}` : "";
 
     const refreshSingleWalletBalance = async (wallet: WalletWithMetadata) => {
         setLoadingBalances((prev) => ({ ...prev, [wallet.address]: true }));
 
-        try {
-            let nextBalance = "--";
+        const nextBalance = await getWalletBalanceLabel(wallet.address, wallet.chainType);
 
-            if (wallet.chainType === "solana") {
-                const sol = await getSolBalance(wallet.address);
-                nextBalance = `${formatBalance(sol)} SOL`;
-            } else if (wallet.chainType === "ethereum") {
-                const usdc = await getEthereumUsdcBalance(wallet.address);
-                nextBalance = `${formatBalance(usdc)} USDC`;
-            }
+        setBalances((prev) => ({
+            ...prev,
+            [wallet.address]: nextBalance,
+        }));
 
-            setBalances((prev) => ({
-                ...prev,
-                [wallet.address]: nextBalance,
-            }));
-        } catch (error) {
-            console.error("Failed to refresh wallet balance:", error);
-            setBalances((prev) => ({
-                ...prev,
-                [wallet.address]: "--",
-            }));
-        } finally {
-            setLoadingBalances((prev) => ({ ...prev, [wallet.address]: false }));
-        }
+        setLoadingBalances((prev) => ({ ...prev, [wallet.address]: false }));
     };
 
     const handleCopy = (address: string) => {
@@ -162,22 +97,11 @@ export default function WalletAccountModal({
 
             const nextBalances = await Promise.all(
                 wallets.map(async (wallet) => {
-                    try {
-                        if (wallet.chainType === "solana") {
-                            const sol = await getSolBalance(wallet.address);
-                            return [wallet.address, `${formatBalance(sol)} SOL`] as const;
-                        }
-
-                        if (wallet.chainType === "ethereum") {
-                            const usdc = await getEthereumUsdcBalance(wallet.address);
-                            return [wallet.address, `${formatBalance(usdc)} USDC`] as const;
-                        }
-
-                        return [wallet.address, "--"] as const;
-                    } catch (error) {
-                        console.error("Failed to fetch wallet balance:", error);
-                        return [wallet.address, "--"] as const;
-                    }
+                    const balanceLabel = await getWalletBalanceLabel(
+                        wallet.address,
+                        wallet.chainType,
+                    );
+                    return [wallet.address, balanceLabel] as const;
                 }),
             );
 
@@ -203,31 +127,20 @@ export default function WalletAccountModal({
     }, [open, wallets]);
 
     const handleFundWallet = async (wallet?: WalletWithMetadata) => {
-        if (!wallet) return;
+        if (!wallet || wallet.chainType !== "solana") return;
 
         setIsFunding(true);
 
         try {
-            if (wallet.chainType === "solana") {
-                const solanaChain =
-                    SOLANA_NETWORK === "mainnet" ? "solana:mainnet" : "solana:devnet";
+            const solanaChain =
+                SOLANA_NETWORK === "mainnet" ? "solana:mainnet" : "solana:devnet";
 
-                await fundSolanaWallet({
-                    address: wallet.address,
-                    options: {
-                        chain: solanaChain,
-                        amount: "1",
-                        asset: "native-currency",
-                    },
-                });
-                return;
-            }
-
-            await fundEthereumWallet({
+            await fundWallet({
                 address: wallet.address,
                 options: {
-                    amount: "50",
-                    asset: "USDC",
+                    chain: solanaChain,
+                    amount: "1",
+                    asset: "native-currency",
                 },
             });
         } catch (error) {
@@ -386,42 +299,44 @@ export default function WalletAccountModal({
                 </div>
 
                 {/* Footer Action */}
-                <div className="mt-6 flex gap-3">
-                    <Button
-                        onClick={() => void handleFundWallet(primaryWallet)}
-                        disabled={!primaryWallet || isFunding || isDisconnecting}
-                        className="flex-1 bg-[#1A2E1A] text-[#A3E635]
+                <div className="mt-6 space-y-3">
+                    <div className="flex gap-3">
+                        <Button
+                            onClick={() => void handleFundWallet(fundingWallet)}
+                            disabled={!fundingWallet || isFunding || isDisconnecting}
+                            className="flex-1 bg-[#1A2E1A] text-[#A3E635]
                                 hover:bg-[#243E24] hover:text-[#B4F050]
                                 border border-[#A3E635]/20  font-ibm text-md tracking-wide
                                 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                        {isFunding ? (
-                            <>
-                                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                                Funding...
-                            </>
-                        ) : (
-                            `Fund ${primaryWallet?.chainType === "solana" ? "SOL" : "USDC"}`
-                        )}
-                    </Button>
+                        >
+                            {isFunding ? (
+                                <>
+                                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                    Funding...
+                                </>
+                            ) : (
+                                "Fund SOL"
+                            )}
+                        </Button>
 
-                    <Button
-                        onClick={handleDisconnect}
-                        disabled={isDisconnecting || isFunding}
-                        className="flex-1 bg-[#1A2E1A] text-[#A3E635]
+                        <Button
+                            onClick={handleDisconnect}
+                            disabled={isDisconnecting || isFunding}
+                            className="flex-1 bg-[#1A2E1A] text-[#A3E635]
                                 hover:bg-[#243E24] hover:text-[#B4F050]
                                 border border-[#A3E635]/20 font-ibm text-md tracking-wide
                                 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                        {isDisconnecting ? (
-                            <>
-                                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                                Disconnecting...
-                            </>
-                        ) : (
-                            "Disconnect"
-                        )}
-                    </Button>
+                        >
+                            {isDisconnecting ? (
+                                <>
+                                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                    Disconnecting...
+                                </>
+                            ) : (
+                                "Disconnect"
+                            )}
+                        </Button>
+                    </div>
                 </div>
 
 
