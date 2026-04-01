@@ -68,7 +68,7 @@ const TradingOrderPanel = ({ baseSymbol, marketIndex }: OrderPanelProps) => {
     const [limitPrice, setLimitPrice] = useState("");
     const [isTrading, setIsTrading] = useState(false);
     const [lastTxUrl, setLastTxUrl] = useState<string | null>(null);
-    const { prices } = usePriceFeed([baseSymbol]);
+    const { prices } = usePriceFeed([baseSymbol, "SOL"]);
 
     // Protocol integration
     const { activeProtocol, adapter, setProtocol } = useProtocol();
@@ -84,8 +84,12 @@ const TradingOrderPanel = ({ baseSymbol, marketIndex }: OrderPanelProps) => {
     const [reduceOnly, setReduceOnly] = useState<boolean>(false);
     const [postOnly, setPostOnly] = useState<boolean>(false);
     const [tpslEnabled, setTpslEnabled] = useState(false);
+    const [takeProfitPrice, setTakeProfitPrice] = useState("");
+    const [stopLossPrice, setStopLossPrice] = useState("");
+    const [selectedDirection, setSelectedDirection] = useState<TradeDirection>("long");
 
     const currentPrice = prices[baseSymbol] || 0;
+    const solPrice = prices["SOL"] || 0;
 
     // Auto-select Drift when it's initialized and no protocol is active yet
     useEffect(() => {
@@ -104,14 +108,16 @@ const TradingOrderPanel = ({ baseSymbol, marketIndex }: OrderPanelProps) => {
         (activeProtocol === "drift" && isDriftReady) ||
         (activeProtocol === "GMXSol" && isGmxsolReady);
 
+    // Use Privy wallet balance for margin display (user's actual available funds)
     const freeCollateral = useMemo(() => {
         if (activeProtocol === "GMXSol") {
-            // GMSOL sends collateral per-order from wallet; no central pool
-            return 0;
+            // GMSOL uses wallet SOL balance as collateral, convert to USD
+            return gmsol.walletBalance * solPrice;
         }
-        if (!isDriftReady) return 0;
-        return drift.getFreeCollateral() ?? 0;
-    }, [activeProtocol, isDriftReady, drift.getFreeCollateral]);
+        // For Drift, use Privy wallet balance (what user can actually deposit/use)
+        // This is more intuitive than showing Drift sub-account balance
+        return drift.walletBalance * solPrice;
+    }, [activeProtocol, drift.walletBalance, gmsol.walletBalance, solPrice]);
 
     const marketInfo = useMemo(() => {
         if (!isDriftReady) return null;
@@ -119,37 +125,76 @@ const TradingOrderPanel = ({ baseSymbol, marketIndex }: OrderPanelProps) => {
     }, [isDriftReady, drift.getPerpMarketInfo, marketIndex]);
 
     const tradeEstimate = useMemo(() => {
-        if (!isDriftReady) return null;
         const amount = parseFloat(tradeAmount) || 0;
         if (amount <= 0) return null;
-        const leveragedAmount = amount * leverage;
 
-        // Maker (limit order) fee estimate
-        const makerDetails = drift.calculateTradeDetails(
-            marketIndex, leveragedAmount, "long" as TradeDirection,
-            leverage, "limit" as OrderVariant,
-            parseFloat(limitPrice) || undefined,
-        );
-        // Taker (market order) fee estimate
-        const takerDetails = drift.calculateTradeDetails(
-            marketIndex, leveragedAmount, "long" as TradeDirection,
-            leverage, "market" as OrderVariant,
-        );
+        // Convert SOL input → market's base asset units
+        // SOL-PERP: solPrice/currentPrice ≈ 1 (no-op)
+        // ETH-PERP: (1 SOL × $150) / $3500 = 0.0428 ETH
+        const baseInMarketUnits = (currentPrice > 0 && solPrice > 0)
+            ? (amount * solPrice) / currentPrice
+            : amount;
+        const leveragedAmount = baseInMarketUnits * leverage;
 
-        const activeDetails = orderType === "limit" ? makerDetails : takerDetails;
-        return {
-            makerFee: makerDetails?.estimatedFee ?? 0,
-            takerFee: takerDetails?.estimatedFee ?? 0,
-            makerFeeRate: makerDetails?.feeRate ?? 0,
-            takerFeeRate: takerDetails?.feeRate ?? 0,
-            liquidationPrice: activeDetails?.liquidationPrice ?? null,
-            requiredMargin: activeDetails?.requiredMargin ?? 0,
-            positionValue: activeDetails?.positionValue ?? 0,
-            entryPrice: activeDetails?.entryPrice ?? 0,
-            freeCollateral: activeDetails?.freeCollateral ?? 0,
-            canAfford: activeDetails?.canAfford ?? false,
-        };
-    }, [isDriftReady, drift.calculateTradeDetails, marketIndex, tradeAmount, leverage, orderType, limitPrice]);
+        if (activeProtocol === "GMXSol") {
+            if (!isGmxsolReady) return null;
+            // For GMXSol, use their calculateTradeDetails with actual direction
+            const activeDetails = gmsol.calculateTradeDetails(
+                baseSymbol, // market symbol
+                amount,
+                selectedDirection,
+                leverage,
+                orderType === "limit" ? "limit" : "market",
+                parseFloat(limitPrice) || undefined,
+                solPrice, // Pass SOL price for margin calculations
+            );
+            return {
+                makerFee: activeDetails?.estimatedFee ?? 0,
+                takerFee: activeDetails?.estimatedFee ?? 0,
+                makerFeeRate: activeDetails?.feeRate ?? 0,
+                takerFeeRate: activeDetails?.feeRate ?? 0,
+                liquidationPrice: activeDetails?.liquidationPrice ?? null,
+                requiredMargin: activeDetails?.requiredMargin ?? 0,
+                positionValue: activeDetails?.positionValue ?? 0,
+                entryPrice: activeDetails?.entryPrice ?? 0,
+                freeCollateral: activeDetails?.freeCollateral ?? 0,
+                canAfford: activeDetails?.canAfford ?? false,
+            };
+        } else {
+            if (!isDriftReady) return null;
+            // Calculate wallet balance in USD for canAfford check
+            const walletBalanceUsd = drift.walletBalance * solPrice;
+
+            // Maker (limit order) fee estimate
+            const makerDetails = drift.calculateTradeDetails(
+                marketIndex, leveragedAmount, selectedDirection,
+                leverage, "limit" as OrderVariant,
+                parseFloat(limitPrice) || undefined,
+                walletBalanceUsd,
+            );
+            // Taker (market order) fee estimate
+            const takerDetails = drift.calculateTradeDetails(
+                marketIndex, leveragedAmount, selectedDirection,
+                leverage, "market" as OrderVariant,
+                undefined,
+                walletBalanceUsd,
+            );
+
+            const activeDetails = orderType === "limit" ? makerDetails : takerDetails;
+            return {
+                makerFee: makerDetails?.estimatedFee ?? 0,
+                takerFee: takerDetails?.estimatedFee ?? 0,
+                makerFeeRate: makerDetails?.feeRate ?? 0,
+                takerFeeRate: takerDetails?.feeRate ?? 0,
+                liquidationPrice: activeDetails?.liquidationPrice ?? null,
+                requiredMargin: activeDetails?.requiredMargin ?? 0,
+                positionValue: activeDetails?.positionValue ?? 0,
+                entryPrice: activeDetails?.entryPrice ?? 0,
+                freeCollateral: activeDetails?.freeCollateral ?? 0,
+                canAfford: activeDetails?.canAfford ?? false,
+            };
+        }
+    }, [activeProtocol, isDriftReady, isGmxsolReady, drift.calculateTradeDetails, drift.walletBalance, gmsol.calculateTradeDetails, marketIndex, tradeAmount, leverage, orderType, limitPrice, currentPrice, solPrice, baseSymbol, selectedDirection]);
 
     const formatPrice = (price: number | null | undefined): string => {
         if (!price || isNaN(price)) return "-";
@@ -287,8 +332,8 @@ const TradingOrderPanel = ({ baseSymbol, marketIndex }: OrderPanelProps) => {
             sizeDeltaUsd,
             amount: rawAmount,
             triggerPrice,
-            takeProfitPrice: "",
-            stopLossPrice: "",
+            takeProfitPrice: takeProfitPrice ? scaleDecimalToBigInt(takeProfitPrice, 30) : "",
+            stopLossPrice: stopLossPrice ? scaleDecimalToBigInt(stopLossPrice, 30) : "",
         };
 
         console.log("-----------------------------------------");
@@ -422,12 +467,10 @@ const TradingOrderPanel = ({ baseSymbol, marketIndex }: OrderPanelProps) => {
                     {/* AVAILABLE MARGIN */}
                     <div className="space-y-1 text-end">
                         <span className="text-xs text-muted-foreground">
-                            {activeProtocol === "GMXSol" ? "Protocol" : "Avail Margin"}
+                            Avail Margin
                         </span>
                         <div className="text-lg font-medium text-foreground font-ibm">
-                            {activeProtocol === "GMXSol"
-                                ? (isGmxsolReady ? "GMXSol Ready" : "Not Connected")
-                                : isProtocolReady ? formatPrice(freeCollateral) : "-"}
+                            {isProtocolReady ? formatPrice(freeCollateral) : "-"}
                         </div>
                     </div>
                 </div>
@@ -561,6 +604,8 @@ const TradingOrderPanel = ({ baseSymbol, marketIndex }: OrderPanelProps) => {
                                 <Input
                                     type="number"
                                     placeholder="0"
+                                    value={takeProfitPrice}
+                                    onChange={(e) => setTakeProfitPrice(e.target.value)}
                                     className="h-9 w-full bg-transparent pl-10 text-right text-base font-medium border dark:border-white/10 border-black/20 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                 />
                             </div>
@@ -572,6 +617,9 @@ const TradingOrderPanel = ({ baseSymbol, marketIndex }: OrderPanelProps) => {
                                 <Input
                                     type="number"
                                     placeholder="0"
+                                    readOnly
+                                    value={takeProfitPrice && currentPrice ?
+                                        ((parseFloat(takeProfitPrice) - currentPrice) * (parseFloat(tradeAmount) * leverage || 0)).toFixed(2) : ""}
                                     className="h-9 w-full bg-transparent pl-12 pr-8 text-right text-base font-medium border dark:border-white/10 border-black/20 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                 />
                                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-medium">
@@ -595,6 +643,8 @@ const TradingOrderPanel = ({ baseSymbol, marketIndex }: OrderPanelProps) => {
                                 <Input
                                     type="number"
                                     placeholder="0"
+                                    value={stopLossPrice}
+                                    onChange={(e) => setStopLossPrice(e.target.value)}
                                     className="h-9 w-full bg-transparent pl-10 text-right text-base font-medium border dark:border-white/10 border-black/20 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                 />
                             </div>
@@ -606,6 +656,9 @@ const TradingOrderPanel = ({ baseSymbol, marketIndex }: OrderPanelProps) => {
                                 <Input
                                     type="number"
                                     placeholder="0"
+                                    readOnly
+                                    value={stopLossPrice && currentPrice ?
+                                        ((currentPrice - parseFloat(stopLossPrice)) * (parseFloat(tradeAmount) * leverage || 0)).toFixed(2) : ""}
                                     className="h-9 w-full bg-transparent pl-12 pr-8 text-right text-base font-medium border dark:border-white/10 border-black/20 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                 />
                                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-medium">
@@ -632,8 +685,17 @@ const TradingOrderPanel = ({ baseSymbol, marketIndex }: OrderPanelProps) => {
                 <div className="flex justify-between">
                     <span>Order Size</span>
                     <span className="text-foreground font-mono font-medium">
-                        {tradeEstimate
-                            ? `${(parseFloat(tradeAmount) * leverage || 0).toFixed(4)} ${baseSymbol}`
+                        {tradeEstimate && tradeEstimate.entryPrice > 0
+                            ? (() => {
+                                const amount = parseFloat(tradeAmount) || 0;
+                                let size: number;
+                                if (selectedToken === "USDC") {
+                                    size = (amount / (tradeEstimate.entryPrice > 0 ? tradeEstimate.entryPrice : currentPrice)) * leverage;
+                                } else {
+                                    size = amount * leverage;
+                                }
+                                return `${size.toFixed(4)} ${baseSymbol}`;
+                            })()
                             : "-"}
                     </span>
                 </div>
@@ -694,6 +756,7 @@ const TradingOrderPanel = ({ baseSymbol, marketIndex }: OrderPanelProps) => {
             {/* ACTION BUTTONS */}
             <div className="grid grid-cols-2 gap-3 pt-2">
                 <Button
+                    onMouseEnter={() => setSelectedDirection("long")}
                     onClick={() => handleTrade("long")}
                     disabled={!isProtocolReady || isTrading}
                     className="h-10 border-emerald-500/30 bg-emerald-500/10 text-emerald-500 dark:text-emerald-400 hover:bg-emerald-500/20 rounded-none"
@@ -702,6 +765,7 @@ const TradingOrderPanel = ({ baseSymbol, marketIndex }: OrderPanelProps) => {
                     {isTrading ? "Placing..." : "Long"}
                 </Button>
                 <Button
+                    onMouseEnter={() => setSelectedDirection("short")}
                     onClick={() => handleTrade("short")}
                     disabled={!isProtocolReady || isTrading}
                     className="h-10 border-red-500/30 bg-red-500/10 text-red-500 dark:text-red-400 hover:bg-red-500/20 rounded-none"

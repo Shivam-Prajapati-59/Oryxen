@@ -1,7 +1,8 @@
 "use client";
-import { BadgeCheck, ChevronDown } from "lucide-react";
+import { BadgeCheck, ChevronDown, TrendingUp, TrendingDown } from "lucide-react";
 import { usePriceFeed } from "@/hooks/usePriceFeed";
 import { PerpFundingRate } from "@/hooks/useFundingRates";
+import { extractFundingRates } from "./helpers/tradingHeaderDialog.helpers";
 import Image from "next/image";
 import { useState, useEffect } from "react";
 
@@ -47,9 +48,7 @@ const TradingCardHeader = ({ isOpen, setIsOpen, selectedMarket }: TradingCardHea
         return oi.toLocaleString();
     };
 
-    // Calculate 24h Change (Optional: You need 24h Open Price from API to calculate this accurately. 
-    // For now, leaving as placeholder or you can implement if API provides 'price24hAgo')
-    const priceChange = "-";
+    // --- Formatters ---
 
     return (
         <div className="flex flex-col md:flex-row items-stretch justify-between border dark:border-white/10 border-black/20">
@@ -103,25 +102,41 @@ const TradingCardHeader = ({ isOpen, setIsOpen, selectedMarket }: TradingCardHea
             {/* RIGHT SECTION: THE STATS BOX */}
             <div className="flex flex-col lg:flex-row border-l dark:border-white/10 border-black/20 min-w-75">
 
-                {/* ROW 1: CHANGE */}
-                <div className="flex lg:flex-col justify-center items-center px-4 py-2 lg:py-1.5 border-t border-b dark:border-white/10 border-black/20 lg:border-t-0 gap-2 lg:border-b-0">
-                    <p className="text-sm text-muted-foreground font-noto">
-                        Change (24hr)
-                    </p>
-                    <h3 className="text-sm font-medium text-muted-foreground font-ibm">
-                        {priceChange}
-                    </h3>
-                </div>
+                {(() => {
+                    const { longRate, shortRate } = extractFundingRates(selectedMarket);
+                    const finalLongRate = longRate !== undefined ? longRate : selectedMarket.fundingRate;
+                    const finalShortRate = shortRate !== undefined ? shortRate : -selectedMarket.fundingRate;
 
-                {/* ROW 2: FUNDING */}
-                <div className="flex lg:flex-col justify-center items-center px-4 py-2 lg:py-1.5 border-b dark:border-white/10 border-black/20 lg:border-l gap-2 lg:border-b-0">
-                    <p className="text-sm text-muted-foreground font-noto">
-                        Funding (1hr)
-                    </p>
-                    <h3 className={`text-sm font-medium font-ibm ${selectedMarket.fundingRate > 0 ? "text-emerald-500" : "text-red-500"}`}>
-                        {formatFunding(selectedMarket.fundingRate)}
-                    </h3>
-                </div>
+                    return (
+                        <>
+                            {/* ROW 1: LONG FUNDING */}
+                            <div className="flex lg:flex-col justify-center items-center px-4 py-2 lg:py-1.5 border-t border-b dark:border-white/10 border-black/20 lg:border-t-0 gap-2 lg:border-b-0 min-w-[120px]">
+                                <div className="flex items-center gap-1 lg:gap-1.5">
+                                    <TrendingUp className="w-3.5 h-3.5 text-emerald-500" />
+                                    <p className="text-sm text-muted-foreground font-noto whitespace-nowrap">
+                                        Long (1hr)
+                                    </p>
+                                </div>
+                                <h3 className={`text-sm font-medium font-ibm ${finalLongRate > 0 ? "text-emerald-500" : "text-red-500"}`}>
+                                    {formatFunding(finalLongRate)}
+                                </h3>
+                            </div>
+
+                            {/* ROW 2: SHORT FUNDING */}
+                            <div className="flex lg:flex-col justify-center items-center px-4 py-2 lg:py-1.5 border-b dark:border-white/10 border-black/20 lg:border-l gap-2 lg:border-b-0 min-w-[120px]">
+                                <div className="flex items-center gap-1 lg:gap-1.5">
+                                    <TrendingDown className="w-3.5 h-3.5 text-red-500" />
+                                    <p className="text-sm text-muted-foreground font-noto whitespace-nowrap">
+                                        Short (1hr)
+                                    </p>
+                                </div>
+                                <h3 className={`text-sm font-medium font-ibm ${finalShortRate > 0 ? "text-emerald-500" : "text-red-500"}`}>
+                                    {formatFunding(finalShortRate)}
+                                </h3>
+                            </div>
+                        </>
+                    );
+                })()}
 
                 {/* ROW 3: TOTAL OI */}
                 <div className="flex lg:flex-col justify-center items-center px-4 py-2 lg:border-l dark:border-white/10 border-black/20 gap-2">

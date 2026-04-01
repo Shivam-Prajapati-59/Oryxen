@@ -13,25 +13,36 @@ interface ProtocolDropDownProps {
     onProtocolChange: (protocol: string) => void;
 }
 
-const protocols = ["Drift", "GMXSol"];
+const protocols = [
+    { name: "Drift", icon: "/assets/protocols/drift.png" },
+    { name: "GMXSol", icon: "/assets/protocols/gmxsol.svg" }
+];
 
 const ProtocolDropDown = ({ selectedProtocol, onProtocolChange }: ProtocolDropDownProps) => {
+    const selectedIcon = protocols.find(p => p.name === selectedProtocol)?.icon;
+
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
                 <Button variant="outline" className="w-full justify-between">
-                    {selectedProtocol}
+                    <div className="flex items-center gap-2">
+                        {selectedIcon && (
+                            <img src={selectedIcon} alt={selectedProtocol} className="w-5 h-5 rounded-full object-cover bg-white" />
+                        )}
+                        <span className="font-medium">{selectedProtocol}</span>
+                    </div>
                     <ChevronDown className="ml-2 h-4 w-4 opacity-50" />
                 </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-[200px]">
+            <DropdownMenuContent align="start" className="w-[240px]">
                 {protocols.map((protocol) => (
                     <DropdownMenuItem
-                        key={protocol}
-                        onClick={() => onProtocolChange(protocol)}
-                        className={selectedProtocol === protocol ? "bg-accent" : ""}
+                        key={protocol.name}
+                        onClick={() => onProtocolChange(protocol.name)}
+                        className={`flex items-center gap-2 cursor-pointer ${selectedProtocol === protocol.name ? "bg-accent" : ""}`}
                     >
-                        {protocol}
+                        <img src={protocol.icon} alt={protocol.name} className="w-6 h-6 rounded-full object-cover bg-white" />
+                        <span className="font-medium">{protocol.name}</span>
                     </DropdownMenuItem>
                 ))}
             </DropdownMenuContent>

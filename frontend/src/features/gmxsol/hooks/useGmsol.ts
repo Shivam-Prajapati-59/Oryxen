@@ -60,6 +60,7 @@ export const useGmsol = () => {
   const [positions, setPositions] = useState<PositionInfo[]>([]);
   const [orders, setOrders] = useState<OrderInfo[]>([]);
   const [txSignatures, setTxSignatures] = useState<string[]>([]);
+  const [walletBalance, setWalletBalance] = useState<number>(0);
 
   // Mutex to prevent concurrent submit* operations from overwriting shared state
   const pendingOpRef = useRef(false);
@@ -141,10 +142,118 @@ export const useGmsol = () => {
     }
   }, [readOnlyProgram, privyWalletAddress]);
 
+  // ── Fetch wallet balance ───────────────────────────────────────────
+  const fetchWalletBalance = useCallback(async () => {
+    if (!privyWallet || !connection) {
+      setWalletBalance(0);
+      return;
+    }
+    try {
+      const pubkey = new PublicKey(privyWallet.address);
+      const lamports = await connection.getBalance(pubkey);
+      const solBalance = lamports / 1e9; // Convert lamports to SOL
+      setWalletBalance(solBalance);
+    } catch (err) {
+      console.warn("[GMXSol] Failed to fetch wallet balance:", err);
+      setWalletBalance(0);
+    }
+  }, [privyWallet, connection]);
+
+  // ── Calculate trade details for pre-trade estimate ─────────────────
+  // Parameters direction and orderVariant are retained for API consistency
+  // TODO: Use direction for liquidation price calculation when market data is available
+  const calculateTradeDetails = useCallback(
+    (
+      marketSymbol: string,
+      collateralAmount: number,
+      direction: "long" | "short", // Used for future liquidation price calculation
+      leverage: number,
+      orderVariant: string, // Used for fee tier selection when available
+      limitPrice?: number,
+      solPrice?: number,
+    ) => {
+      const zeroResult = (lev: number) => ({
+        entryPrice: 0,
+        positionValue: 0,
+        requiredMargin: 0,
+        estimatedFee: 0,
+        feeRate: 0,
+        liquidationPrice: null as number | null,
+        effectiveLeverage: lev,
+        freeCollateral: 0,
+        canAfford: false,
+        priceImpact: 0,
+      });
+
+      // Find market info by name or indexToken
+      const marketInfo = markets.find(
+        (m) =>
+          m.indexToken?.toLowerCase().includes(marketSymbol.toLowerCase()) ||
+          m.name?.toLowerCase().includes(marketSymbol.toLowerCase()),
+      );
+
+      if (!marketInfo) {
+        return zeroResult(leverage);
+      }
+
+      // Require SOL price for accurate calculations
+      if (!solPrice) {
+        return zeroResult(leverage);
+      }
+      const effectiveSolPrice = solPrice;
+
+      // Position value = collateral × leverage
+      const positionValue = collateralAmount * effectiveSolPrice * leverage;
+
+      // Use market-specific fee if available, otherwise default 0.1%
+      // GMXSol typical fee is ~0.05-0.1%
+      const feeRate = marketInfo?.rawAccount?.swapFee
+        ? Number(marketInfo.rawAccount.swapFee) / 1e9
+        : 0.001;
+      const estimatedFee = positionValue * feeRate;
+
+      // Required margin is the collateral in USD
+      const requiredMargin = collateralAmount * effectiveSolPrice;
+
+      // Free collateral is wallet balance in USD
+      const freeCollateralUsd = walletBalance * effectiveSolPrice;
+
+      // Can afford if wallet balance covers the collateral needed
+      const canAfford = walletBalance >= collateralAmount;
+
+      // Entry price from limit price or 0 (will be filled from price feed)
+      const entryPrice = limitPrice ?? 0;
+
+      const maintenanceMargin = 0.01; // 1%
+      const liquidationPrice: number | null = entryPrice > 0 ? (
+        direction === "long"
+          ? entryPrice * (1 - 1 / leverage + maintenanceMargin)
+          : entryPrice * (1 + 1 / leverage - maintenanceMargin)
+      ) : null;
+
+      return {
+        entryPrice,
+        positionValue,
+        requiredMargin,
+        estimatedFee,
+        feeRate,
+        liquidationPrice,
+        effectiveLeverage: leverage,
+        freeCollateral: freeCollateralUsd,
+        canAfford,
+        priceImpact: 0,
+      };
+    },
+    [markets, walletBalance],
+  );
+
   useEffect(() => {
     fetchMarkets();
     fetchPositionsAndOrders();
-  }, [fetchMarkets, fetchPositionsAndOrders]);
+    fetchWalletBalance();
+    const interval = setInterval(fetchWalletBalance, 30000); // Refresh every 30s
+    return () => clearInterval(interval);
+  }, [fetchMarkets, fetchPositionsAndOrders, fetchWalletBalance]);
 
   // ── Helper: sign & send SDK-generated transactions ─────────────────
   const signAndSendTransactions = useCallback(
@@ -937,14 +1046,18 @@ export const useGmsol = () => {
     isLoading,
     error,
     txSignatures,
+    walletBalance,
     // Fetch
     fetchMarkets,
     fetchPositionsAndOrders,
+    fetchWalletBalance,
     // Order operations
     submitOrder,
     submitCloseOrder,
     submitUpdateOrder,
     submitClosePosition,
+    // Pre-trade calculations
+    calculateTradeDetails,
     // LP operations
     submitDeposit,
     submitWithdrawal,

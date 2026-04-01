@@ -3,6 +3,13 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useWallets } from "@privy-io/react-auth/solana";
 import type { DriftClient, User } from "@drift-labs/sdk-browser";
+import {
+  BN,
+  PositionDirection,
+  OrderType,
+  MarketType,
+} from "@drift-labs/sdk-browser";
+import { PublicKey } from "@solana/web3.js";
 
 import { isValidSolanaAddress } from "@/lib/solana";
 import { createDriftClient, getDriftConnection } from "../adapter/client";
@@ -42,6 +49,7 @@ export const useDrift = () => {
   const [userAccountExists, setUserAccountExists] = useState<boolean | null>(
     null,
   );
+  const [walletBalance, setWalletBalance] = useState<number>(0);
 
   // ─── Refs ──────────────────────────────────────────────────────────
   const isMountedRef = useRef(true);
@@ -179,6 +187,134 @@ export const useDrift = () => {
     [driftClient, withLoading],
   );
 
+  // ─── Wallet Balance (Privy embedded wallet) ─────────────────────────
+  const fetchWalletBalance = useCallback(async () => {
+    if (!privyWallet || !connection) {
+      setWalletBalance(0);
+      return;
+    }
+    try {
+      const pubkey = new PublicKey(privyWallet.address);
+      const lamports = await connection.getBalance(pubkey);
+      const solBalance = lamports / 1e9; // Convert lamports to SOL
+      setWalletBalance(solBalance);
+    } catch (err) {
+      console.warn("[Drift] Failed to fetch wallet balance:", err);
+      setWalletBalance(0);
+    }
+  }, [privyWallet, connection]);
+
+  // Fetch wallet balance on mount and periodically
+  useEffect(() => {
+    fetchWalletBalance();
+    const interval = setInterval(fetchWalletBalance, 30000); // Refresh every 30s
+    return () => clearInterval(interval);
+  }, [fetchWalletBalance]);
+
+  // ─── Close Position with Auto-Withdraw ──────────────────────────────
+  const closePosition = useCallback(
+    async (marketIndex: number): Promise<TradeResult> => {
+      if (!driftClient || !user) {
+        throw new Error("Drift client or user not initialized");
+      }
+
+      return withLoading(async () => {
+        // Get current position
+        const position = user.getPerpPosition(marketIndex);
+        if (!position || position.baseAssetAmount.isZero()) {
+          throw new Error("No position to close");
+        }
+
+        // Determine direction to close (opposite of current position)
+        const isLong = position.baseAssetAmount.gt(new BN(0));
+        const closeDirection = isLong
+          ? PositionDirection.SHORT
+          : PositionDirection.LONG;
+        const baseAmount = position.baseAssetAmount.abs();
+
+        // Place a reduce-only market order to close the position
+        const orderParams = {
+          orderType: OrderType.MARKET,
+          marketIndex,
+          marketType: MarketType.PERP,
+          direction: closeDirection,
+          baseAssetAmount: baseAmount,
+          reduceOnly: true,
+        };
+
+        const txSig = await driftClient.placePerpOrder(orderParams);
+        console.log("[Drift] Close position tx:", txSig);
+
+        // Wait for transaction confirmation instead of hardcoded delay
+        try {
+          const confirmation = await connection.confirmTransaction(
+            txSig,
+            "confirmed",
+          );
+          if (confirmation.value.err) {
+            throw new Error(
+              `Transaction failed: ${JSON.stringify(confirmation.value.err)}`,
+            );
+          }
+          console.log("[Drift] Close position confirmed");
+        } catch (confirmErr) {
+          console.warn(
+            "[Drift] Confirmation polling failed, falling back to delay:",
+            confirmErr,
+          );
+          // Fallback to polling position state with timeout
+          const maxWaitMs = 15000;
+          const pollIntervalMs = 1000;
+          const startTime = Date.now();
+
+          while (Date.now() - startTime < maxWaitMs) {
+            await driftClient.fetchAccounts();
+            const checkPosition = driftClient
+              .getUser()
+              .getPerpPosition(marketIndex);
+            if (!checkPosition || checkPosition.baseAssetAmount.isZero()) {
+              console.log("[Drift] Position closed confirmed via polling");
+              break;
+            }
+            await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+          }
+        }
+
+        // Refresh user data
+        await driftClient.fetchAccounts();
+        const refreshedUser = driftClient.getUser();
+        safeSet(setUser, refreshedUser);
+
+        // Auto-withdraw any free collateral back to wallet
+        const freeCol = refreshedUser.getFreeCollateral();
+        const freeColNum = bnToUsd(freeCol);
+        if (freeColNum > 0.01) {
+          // Withdraw 99% to leave some for fees
+          const withdrawAmount = freeColNum * 0.99;
+          console.log(
+            "[Drift] Auto-withdrawing",
+            withdrawAmount,
+            "USDC to wallet",
+          );
+          try {
+            await adapterWithdraw(driftClient, withdrawAmount, "USDC", true, 0);
+          } catch (withdrawErr) {
+            console.warn("[Drift] Auto-withdraw failed:", withdrawErr);
+          }
+        }
+
+        // Refresh wallet balance after withdraw
+        await fetchWalletBalance();
+
+        return {
+          txSig,
+          explorerUrl: `https://solscan.io/tx/${txSig}`,
+        };
+      });
+    },
+    [driftClient, user, withLoading, safeSet, fetchWalletBalance],
+  );
+
   // ─── Orders ────────────────────────────────────────────────────────
   const placeOrder = useCallback(
     (params: ExecuteTradeParams): Promise<TradeResult> => {
@@ -309,6 +445,7 @@ export const useDrift = () => {
       leverage: number,
       orderVariant: OrderVariant,
       limitPrice?: number,
+      walletBalanceUsd?: number, // Optional: wallet balance in USD for canAfford check
     ) => {
       const zeroResult = (lev: number) => ({
         entryPrice: 0,
@@ -337,14 +474,18 @@ export const useDrift = () => {
         const oraclePrice = bnToPrice(oracleData.price);
         const entryPrice = limitPrice ?? oraclePrice;
 
-        // Position value
+        // Position value - this is the total position value (baseAssetAmount is already leveraged)
         const positionValue = baseAssetAmount * entryPrice;
 
         // Read margin ratio from market account (not hardcoded)
+        // This is the protocol-enforced initial margin ratio
         const market = driftClient.getPerpMarketAccount(marketIndex);
         const initialMarginRatio = market
           ? market.marginRatioInitial / 10_000
           : 0.1; // fallback only if market unavailable
+
+        // Required margin is position value × initial margin ratio
+        // This is the protocol's minimum - you cannot open a position with less
         const requiredMargin = positionValue * initialMarginRatio;
 
         // Fee from state account's fee structure (avoids User.getUserFeeTier
@@ -375,10 +516,13 @@ export const useDrift = () => {
         const estimatedFee = positionValue * Math.abs(feeRate);
 
         // Free collateral & affordability
-        let freeCol = 0;
+        // Use wallet balance if provided (what user can deposit), otherwise use Drift account balance
+        let freeCol = walletBalanceUsd ?? 0;
         let totalCol = 0;
         try {
-          freeCol = bnToUsd(user.getFreeCollateral());
+          if (!walletBalanceUsd) {
+            freeCol = bnToUsd(user.getFreeCollateral());
+          }
           totalCol = bnToUsd(user.getTotalCollateral());
         } catch (colErr) {
           console.warn("[Drift] Collateral read failed:", colErr);
@@ -470,6 +614,7 @@ export const useDrift = () => {
     userAccountExists,
     solanaWallet: privyWallet,
     connection,
+    walletBalance,
 
     // Actions
     initializeDriftClient,
@@ -477,8 +622,10 @@ export const useDrift = () => {
     deposit,
     withdraw,
     placeOrder,
+    closePosition,
     clearError,
     refreshUser,
+    fetchWalletBalance,
 
     // Queries (no hardcoded values)
     getOraclePrice,
