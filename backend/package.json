@@ -5,6 +5,7 @@
   "private": true,
   "devDependencies": {
     "@types/bun": "latest",
+    "@types/ws": "^8.18.1",
     "drizzle-kit": "^0.31.8",
     "tsx": "^4.21.0"
   },
@@ -18,6 +19,7 @@
     "drizzle-orm": "^0.45.1",
     "express": "^5.2.1",
     "express-rate-limit": "^8.3.2",
-    "helmet": "^8.1.0"
+    "helmet": "^8.1.0",
+    "ws": "^8.20.0"
   }
 }

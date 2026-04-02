@@ -127,7 +127,7 @@ export class PythWebSocket {
       }
     });
 
-    this.ws.on("message", (raw) => {
+    this.ws.on("message", (raw: any) => {
       try {
         const message = JSON.parse(raw.toString());
         if (message.type === "price_update") this.handlePriceUpdate(message);
@@ -136,7 +136,7 @@ export class PythWebSocket {
       }
     });
 
-    this.ws.on("error", (error) => {
+    this.ws.on("error", (error: Error) => {
       console.error("❌ [Pyth WS] WebSocket error:", error.message);
     });
 
