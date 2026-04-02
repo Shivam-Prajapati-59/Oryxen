@@ -1,9 +1,9 @@
 import LandingPage from "@/components/landing/LandingPage";
 
 export const metadata = {
-  title: "Landin - Premium Agency for Creatives",
+  title: "Oryxen Landing",
   description:
-    "We specialize in crafting unique digital presence that help businesses grow and stand out in their industries.",
+    "Oryxen routes Solana perpetual trades across Drift and GMXSol through one cleaner execution surface.",
 };
 
 export default function LandingRoute() {

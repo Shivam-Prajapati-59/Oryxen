@@ -1,17 +1,17 @@
 "use client";
 
-import LandingNavbar from "./LandingNavbar";
-import HeroSection from "./HeroSection";
-
 import LandingFooter from "./LandingFooter";
+import FeaturesGrid from "./FeaturesGrid";
+import HeroSection from "./HeroSection";
+import LandingNavbar from "./LandingNavbar";
 
 export default function LandingPage() {
   return (
-    <div className="font-[DM_Sans,sans-serif]">
-
+    <main className="bg-[#050816] text-white" style={{ fontFamily: "var(--font-dm-sans)" }}>
       <LandingNavbar />
       <HeroSection />
+      <FeaturesGrid />
       <LandingFooter />
-    </div>
+    </main>
   );
 }

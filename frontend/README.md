@@ -24,16 +24,19 @@ The Oryxen Frontend is a Next.js 14 web application designed to act as the ultim
 ## 📦 Installation & Setup
 
 1. Install dependencies:
+
 ```bash
 npm install
 ```
 
 2. Setup Environment Variables `.env`:
+
 ```env
 NEXT_PUBLIC_PRIVY_APP_ID=your_privy_app_id
 ```
 
 3. Run the development server:
+
 ```bash
 npm run dev
 ```

@@ -1,81 +1,84 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
-import Image from "next/image";
 
 export default function LandingFooter() {
   const [email, setEmail] = useState("");
 
   return (
-    <footer className="pt-20 px-10 pb-10 border-t border-[#1a1a1a] bg-[#080808] max-md:pt-[60px] max-md:px-5 max-md:pb-[30px]">
-      <div className="max-w-[1200px] mx-auto">
-        <div className="grid grid-cols-[1.2fr_1fr_1fr] max-lg:grid-cols-2 max-md:grid-cols-1 gap-[60px] max-md:gap-10 pb-[60px]">
-          {/* Brand Column */}
+    <footer className="border-t border-white/8 bg-[#040714] px-6 pb-10 pt-20 md:px-10">
+      <div className="mx-auto max-w-7xl">
+        <div className="grid gap-12 pb-14 lg:grid-cols-[1.2fr_0.8fr_0.8fr]">
           <div>
-            <div className="flex items-center gap-2.5 mb-5">
-              <Image src="/oryx2.webp" alt="Oryxen" width={32} height={32} className="rounded-lg" />
-              <span className="text-lg font-semibold">Oryxen</span>
+            <div className="text-lg font-semibold tracking-[-0.05em] text-white">
+              Oryxen
             </div>
-            <p className="text-sm text-[#888] leading-[1.7] mb-6">
-              The Solana perpetual trading aggregator.
-              <br />
-              Best prices, deepest liquidity, one platform.
+            <p className="mt-4 max-w-md text-sm leading-7 text-slate-300">
+              A cleaner landing and routing layer for Solana perpetual trading,
+              currently focused on Drift and GMXSol execution flow.
             </p>
-            <div className="flex overflow-hidden rounded-[10px] border border-[#1a1a1a] max-w-[340px]">
+            <form onSubmit={(e) => { e.preventDefault(); setEmail(""); }} className="mt-6 flex max-w-md overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04]">
               <input
                 type="email"
-                placeholder="Enter Your Email..."
+                placeholder="Email for product updates"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="flex-1 px-4 py-3 bg-white/[0.03] border-none text-sm text-white font-['DM_Sans',sans-serif] outline-none placeholder:text-[#666]"
+                className="flex-1 bg-transparent px-4 py-3.5 text-sm text-white outline-none placeholder:text-slate-500"
+                required
               />
-              <button className="px-5 py-3 bg-[#0055FE] text-white border-none text-sm font-medium cursor-pointer font-['DM_Sans',sans-serif] transition-colors duration-300 whitespace-nowrap hover:bg-[#0044cc]">
+              <button type="submit" className="bg-white px-5 py-3.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-50">
                 Subscribe
               </button>
-            </div>
+            </form>
           </div>
 
-          {/* Links Columns */}
-          <div className="flex gap-[60px]">
-            <div className="flex flex-col gap-3">
-              <h4 className="text-base font-semibold mb-2">Product</h4>
-              <a href="/perps" className="text-sm text-[#888] no-underline transition-colors duration-300 hover:text-white">Trade Perps</a>
-              <a href="/funding-rate" className="text-sm text-[#888] no-underline transition-colors duration-300 hover:text-white">Funding Rates</a>
-              <a href="/liquidation" className="text-sm text-[#888] no-underline transition-colors duration-300 hover:text-white">Liquidations</a>
-              <a href="/leaderboard" className="text-sm text-[#888] no-underline transition-colors duration-300 hover:text-white">Leaderboard</a>
-              <a href="#faq" className="text-sm text-[#888] no-underline transition-colors duration-300 hover:text-white">FAQ</a>
-            </div>
-            <div className="flex flex-col gap-3">
-              <h4 className="text-base font-semibold mb-2">Community</h4>
-              <a href="#" className="text-sm text-[#888] no-underline transition-colors duration-300 hover:text-white">Twitter (X)</a>
-              <a href="#" className="text-sm text-[#888] no-underline transition-colors duration-300 hover:text-white">Discord</a>
-              <a href="#" className="text-sm text-[#888] no-underline transition-colors duration-300 hover:text-white">Telegram</a>
-              <a href="#" className="text-sm text-[#888] no-underline transition-colors duration-300 hover:text-white">GitHub</a>
-            </div>
+          <div className="grid gap-3">
+            <h4 className="text-sm font-semibold uppercase tracking-[0.22em] text-white/55">
+              Product
+            </h4>
+            <Link href="/trade" className="text-sm text-slate-300 transition hover:text-white">
+              Trade Terminal
+            </Link>
+            <Link href="/funding-rate" className="text-sm text-slate-300 transition hover:text-white">
+              Funding Rates
+            </Link>
+            <a href="#protocols" className="text-sm text-slate-300 transition hover:text-white">
+              Protocol Coverage
+            </a>
+            <a href="#faq" className="text-sm text-slate-300 transition hover:text-white">
+              FAQ
+            </a>
           </div>
 
-          {/* Counter Column */}
-          <div className="flex flex-col gap-4 items-start">
-            <div className="inline-flex items-center gap-2 px-5 py-2.5 bg-white/[0.03] border border-[#1a1a1a] rounded-full text-sm">
-              <span className="text-[#888]">Total Volume –</span>
-              <span className="text-white font-semibold">$1.2B+</span>
-            </div>
-            <div className="w-[200px] h-[130px] rounded-xl overflow-hidden border border-[#1a1a1a]">
-              <div className="w-full h-full bg-gradient-to-br from-[#0a0a0a] via-[#1a1a2e] via-[60%] to-[#0a0a0a] bg-[length:200%_200%] animate-[shimmer_8s_linear_infinite] flex items-center justify-center rounded-xl">
-                <div className="w-12 h-12 bg-[rgba(0,85,254,0.8)] rounded-full flex items-center justify-center text-base text-white transition-transform duration-300 hover:scale-110">
-                  ▶
-                </div>
+          <div className="space-y-4">
+            <h4 className="text-sm font-semibold uppercase tracking-[0.22em] text-white/55">
+              Focus
+            </h4>
+            <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.04] p-5">
+              <div className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                Routing Layer
               </div>
+              <div className="mt-3 text-2xl font-semibold tracking-[-0.05em] text-white">
+                Drift + GMXSol
+              </div>
+              <p className="mt-3 text-sm leading-7 text-slate-300">
+                Leaner landing copy, cleaner navigation, and a hero that now
+                reflects the actual supported execution layer.
+              </p>
             </div>
           </div>
         </div>
 
-        <div className="flex justify-between items-center pt-6 border-t border-[#1a1a1a] text-sm text-[#888] max-md:flex-col max-md:gap-4 max-md:text-center">
-          <span>© 2025 Oryxen Protocol</span>
-          <div className="flex items-center gap-4">
-            <a href="#" className="text-[#888] no-underline transition-colors duration-300 hover:text-white">Terms of Service</a>
-            <span className="opacity-30">|</span>
-            <a href="#" className="text-[#888] no-underline transition-colors duration-300 hover:text-white">Privacy Policy</a>
+        <div className="flex flex-col gap-4 border-t border-white/8 pt-6 text-sm text-slate-400 md:flex-row md:items-center md:justify-between">
+          <span>© 2026 Oryxen</span>
+          <div className="flex flex-wrap items-center gap-4">
+            <Link href="/trade" className="transition hover:text-white">
+              Open App
+            </Link>
+            <Link href="/funding-rate" className="transition hover:text-white">
+              Funding Rates
+            </Link>
           </div>
         </div>
       </div>

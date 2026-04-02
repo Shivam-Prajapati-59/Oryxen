@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Noto_Sans, IBM_Plex_Sans } from "next/font/google";
+import { Noto_Sans, IBM_Plex_Sans, DM_Sans } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers/provider";
 import Navbar from "@/components/layout/Navbar";
@@ -16,6 +16,12 @@ const ibmPlexSans = IBM_Plex_Sans({
   weight: ["300", "400", "500", "600", "700"],
 });
 
+const dmSans = DM_Sans({
+  subsets: ["latin"],
+  variable: "--font-dm-sans",
+  weight: ["300", "400", "500", "600", "700"],
+});
+
 export const metadata: Metadata = {
   title: "Oryxen",
   description: "Solana DeFi perpetuals trading aggregator",
@@ -28,9 +34,9 @@ export default function RootLayout({
 }) {
   return (
     <ViewTransitions>
-      <html lang="en" suppressHydrationWarning suppressContentEditableWarning>
+      <html lang="en" suppressHydrationWarning suppressContentEditableWarning className="scroll-smooth">
         <body
-          className={`${notoSans.variable} ${ibmPlexSans.variable} antialiased`}
+          className={`${notoSans.variable} ${ibmPlexSans.variable} ${dmSans.variable} antialiased`}
         >
           <Providers>
             <Navbar />

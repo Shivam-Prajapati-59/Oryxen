@@ -9,9 +9,9 @@ const dmSans = DM_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "Landin - Premium Agency for Creatives",
+  title: "Oryxen Landing",
   description:
-    "We specialize in crafting unique digital presence that help businesses grow and stand out in their industries.",
+    "Oryxen routes Solana perpetual trades across Drift and GMXSol through one cleaner execution surface.",
 };
 
 export default function LandingLayout({
@@ -20,7 +20,10 @@ export default function LandingLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className={`${dmSans.variable}`} style={{ fontFamily: "'DM Sans', sans-serif" }}>
+    <div
+      className={dmSans.variable}
+      style={{ fontFamily: "'DM Sans', sans-serif" }}
+    >
       {children}
     </div>
   );
