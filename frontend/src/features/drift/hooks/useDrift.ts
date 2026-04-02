@@ -80,28 +80,27 @@ export const useDrift = () => {
   }, [wallets]);
 
   // ─── Helpers ───────────────────────────────────────────────────────
-  const safeSet = useCallback(
-    <T,>(setter: React.Dispatch<React.SetStateAction<T>>, value: T) => {
-      if (isMountedRef.current) setter(value);
-    },
-    [],
-  );
-
   const withLoading = useCallback(
     async <T>(fn: () => Promise<T>): Promise<T> => {
-      safeSet(setIsLoading, true);
-      safeSet(setError, null);
+      if (isMountedRef.current) {
+        setIsLoading(true);
+        setError(null);
+      }
       try {
         return await fn();
       } catch (err) {
         const msg = normaliseDriftError(err);
-        safeSet(setError, msg);
+        if (isMountedRef.current) {
+          setError(msg);
+        }
         throw new Error(msg);
       } finally {
-        safeSet(setIsLoading, false);
+        if (isMountedRef.current) {
+          setIsLoading(false);
+        }
       }
     },
-    [safeSet],
+    [],
   );
 
   // ─── Initialize ────────────────────────────────────────────────────
@@ -115,8 +114,10 @@ export const useDrift = () => {
     }
 
     isInitializingRef.current = true;
-    safeSet(setIsLoading, true);
-    safeSet(setError, null);
+    if (isMountedRef.current) {
+      setIsLoading(true);
+      setError(null);
+    }
 
     try {
       const client = await createDriftClient(privyWallet);
@@ -143,13 +144,17 @@ export const useDrift = () => {
       return client;
     } catch (err) {
       const msg = normaliseDriftError(err);
-      safeSet(setError, msg);
+      if (isMountedRef.current) {
+        setError(msg);
+      }
       return null;
     } finally {
       isInitializingRef.current = false;
-      safeSet(setIsLoading, false);
+      if (isMountedRef.current) {
+        setIsLoading(false);
+      }
     }
-  }, [privyWallet, safeSet]);
+  }, [privyWallet]);
 
   // ─── User Account ──────────────────────────────────────────────────
   const initializeUserAccount = useCallback(
@@ -163,13 +168,15 @@ export const useDrift = () => {
         );
 
         const driftUser = driftClient.getUser();
-        safeSet(setUser, driftUser);
-        safeSet(setUserAccountExists, true);
+        if (isMountedRef.current) {
+          setUser(driftUser);
+          setUserAccountExists(true);
+        }
 
         return { txSig, userPublicKey };
       });
     },
-    [driftClient, withLoading, safeSet],
+    [driftClient, withLoading],
   );
 
   // ─── Deposit / Withdraw ────────────────────────────────────────────
@@ -289,7 +296,9 @@ export const useDrift = () => {
         // Refresh user data
         await driftClient.fetchAccounts();
         const refreshedUser = driftClient.getUser();
-        safeSet(setUser, refreshedUser);
+        if (isMountedRef.current) {
+          setUser(refreshedUser);
+        }
 
         // Auto-withdraw any free collateral back to wallet
         const freeCol = refreshedUser.getFreeCollateral();
@@ -318,7 +327,7 @@ export const useDrift = () => {
         };
       });
     },
-    [driftClient, user, withLoading, safeSet, fetchWalletBalance, connection],
+    [driftClient, user, withLoading, fetchWalletBalance, connection],
   );
 
   // ─── Orders ────────────────────────────────────────────────────────
@@ -359,15 +368,21 @@ export const useDrift = () => {
 
           if (!accountExists) {
             await driftClient.initializeUserAccount(subAccountId, userAccountName);
-            safeSet(setUserAccountExists, true);
+            if (isMountedRef.current) {
+              setUserAccountExists(true);
+            }
           } else {
-            safeSet(setUserAccountExists, true);
+            if (isMountedRef.current) {
+              setUserAccountExists(true);
+            }
           }
         }
 
         await driftClient.fetchAccounts();
         driftUser = driftClient.getUser();
-        safeSet(setUser, driftUser);
+        if (isMountedRef.current) {
+          setUser(driftUser);
+        }
 
         const freeCollateralUsd = bnToUsd(driftUser.getFreeCollateral());
         const marginShortfallUsd = Math.max(0, requiredMarginUsd - freeCollateralUsd);
@@ -408,8 +423,10 @@ export const useDrift = () => {
 
         await driftClient.fetchAccounts();
         driftUser = driftClient.getUser();
-        safeSet(setUser, driftUser);
-        safeSet(setUserAccountExists, true);
+        if (isMountedRef.current) {
+          setUser(driftUser);
+          setUserAccountExists(true);
+        }
         await fetchWalletBalance();
 
         return {
@@ -427,7 +444,6 @@ export const useDrift = () => {
       userAccountExists,
       walletBalance,
       withLoading,
-      safeSet,
       fetchWalletBalance,
     ],
   );
@@ -673,11 +689,13 @@ export const useDrift = () => {
     if (!driftClient || !isMountedRef.current) return;
     try {
       await driftClient.fetchAccounts();
-      safeSet(setUser, driftClient.getUser());
+      if (isMountedRef.current) {
+        setUser(driftClient.getUser());
+      }
     } catch (err) {
       console.error("Error refreshing user:", err);
     }
-  }, [driftClient, safeSet]);
+  }, [driftClient]);
 
   const clearError = useCallback(() => setError(null), []);
 

@@ -152,6 +152,7 @@ const TradingOrderPanel = ({ baseSymbol, marketIndex }: OrderPanelProps) => {
                 orderType === "limit" ? "limit" : "market",
                 parseFloat(limitPrice) || undefined,
                 solPrice, // Pass SOL price for margin calculations
+                currentPrice,
             );
             return {
                 makerFee: null,
@@ -161,9 +162,10 @@ const TradingOrderPanel = ({ baseSymbol, marketIndex }: OrderPanelProps) => {
                 liquidationPrice: activeDetails?.liquidationPrice ?? null,
                 requiredMargin: activeDetails?.requiredMargin ?? 0,
                 positionValue: activeDetails?.positionValue ?? 0,
-                entryPrice: activeDetails?.entryPrice ?? 0,
+                entryPrice: activeDetails?.entryPrice ?? null,
                 freeCollateral: activeDetails?.freeCollateral ?? 0,
                 canAfford: activeDetails?.canAfford ?? false,
+                priceImpact: activeDetails?.priceImpact ?? null,
             };
         } else {
             if (!isDriftReady) return null;
@@ -199,12 +201,13 @@ const TradingOrderPanel = ({ baseSymbol, marketIndex }: OrderPanelProps) => {
                 liquidationPrice: activeDetails?.liquidationPrice ?? null,
                 requiredMargin: activeDetails?.requiredMargin ?? 0,
                 positionValue: activeDetails?.positionValue ?? 0,
-                entryPrice: activeDetails?.entryPrice ?? 0,
+                entryPrice: activeDetails?.entryPrice ?? null,
                 freeCollateral: activeDetails?.freeCollateral ?? 0,
                 canAfford: activeDetails?.canAfford ?? false,
+                priceImpact: activeDetails?.priceImpact ?? null,
             };
         }
-    }, [activeProtocol, isDriftReady, isGmxsolReady, drift, gmsol, marketIndex, tradeAmount, leverage, orderType, limitPrice, solPrice, baseSymbol, selectedDirection, convertDriftInputToBaseAmount]);
+    }, [activeProtocol, isDriftReady, isGmxsolReady, drift, gmsol, marketIndex, tradeAmount, leverage, orderType, limitPrice, currentPrice, solPrice, baseSymbol, selectedDirection, convertDriftInputToBaseAmount]);
 
     const formatPrice = (price: number | null | undefined): string => {
         if (!price || isNaN(price)) return "-";

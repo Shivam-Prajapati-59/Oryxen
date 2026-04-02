@@ -291,7 +291,7 @@ const TradingCardFooter = () => {
                 protocol: "GMXSol",
             };
         });
-    }, [activeProtocol, gmsol.orders, gmsol.markets, SIZE_USD_DIVISOR_30_TO_HUMAN]);
+    }, [activeProtocol, gmsol.orders, gmsol.markets]);
 
     useEffect(() => {
         if (isDriftReady && activeProtocol === "drift" && drift.driftClient && drift.user) {

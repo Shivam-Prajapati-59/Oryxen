@@ -9,6 +9,7 @@ import type {
   Position,
 } from "../protocol-adapter/types";
 import { useDrift } from "./hooks/useDrift";
+import type { ExecuteTradeParams } from "./types";
 
 /**
  * Drift Protocol Adapter
@@ -113,7 +114,7 @@ export class DriftAdapter implements IProtocolAdapter {
   async placeOrder(params: OrderParams): Promise<TradeResult> {
     const leveragedAmount = params.baseAssetAmount * (params.leverage || 1);
 
-    const orderParams: any = {
+    const orderParams: ExecuteTradeParams = {
       marketIndex: params.marketIndex,
       direction: params.direction,
       baseAssetAmount: leveragedAmount,

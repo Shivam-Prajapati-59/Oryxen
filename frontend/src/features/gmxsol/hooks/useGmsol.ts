@@ -8,7 +8,11 @@
  * Data fetching (markets, positions, orders) uses Anchor program.account.
  */
 
-import { isValidSolanaAddress, createPrivyWalletAdapter } from "@/lib/solana";
+import {
+  isValidSolanaAddress,
+  createPrivyWalletAdapter,
+  type PrivySolanaWallet,
+} from "@/lib/solana";
 import { useWallets } from "@privy-io/react-auth/solana";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -43,14 +47,21 @@ import {
   Connection,
   PublicKey,
   SendTransactionError,
+  Transaction,
   VersionedTransaction,
 } from "@solana/web3.js";
 import { AnchorProvider, Program } from "@coral-xyz/anchor";
 import { IDL } from "@/lib/idl/gmxsol/gmsol-store-idl";
-import { GmsolStore } from "@/lib/idl/gmxsol/gmsol_store_type";
+import type { GmsolStore } from "@/lib/idl/gmxsol/gmsol-store-idl";
 import { GMSOL_RPC_URL, GMSOL_CHAIN_PREFIX } from "../constants";
 
 const NATIVE_SOL_MINT = PublicKey.default.toBase58();
+type AnchorWallet = ConstructorParameters<typeof AnchorProvider>[1];
+type ErrorWithLogs = Error & { logs?: string[] };
+type ErrorWithPartialSignatures = Error & {
+  partialSignatures?: string[];
+  cause?: unknown;
+};
 
 export const useGmsol = () => {
   const { wallets } = useWallets();
@@ -66,7 +77,7 @@ export const useGmsol = () => {
   const pendingOpRef = useRef(false);
 
   // ── Privy Solana wallet ────────────────────────────────────────────
-  const privyWallet = useMemo(
+  const privyWallet = useMemo<PrivySolanaWallet | null>(
     () =>
       wallets.find((w) => {
         const name = w.standardWallet?.name?.toLowerCase() ?? "";
@@ -86,21 +97,26 @@ export const useGmsol = () => {
   // A completely separate read-only program to avoid recreating the program
   // (and thus re-triggering the useEffect) when privyWallet reference changes.
   const readOnlyProgram = useMemo(() => {
-    const readOnlyProvider = new AnchorProvider(
-      connection,
-      {
-        publicKey: PublicKey.default,
-        signTransaction: async () => {
-          throw new Error("Wallet not connected");
-        },
-        signAllTransactions: async () => {
-          throw new Error("Wallet not connected");
-        },
-      } as any,
-      { commitment: "confirmed", skipPreflight: true },
-    );
+    const readOnlyWallet: AnchorWallet = {
+      publicKey: PublicKey.default,
+      signTransaction: async <
+        T extends Transaction | VersionedTransaction,
+      >(): Promise<T> => {
+        throw new Error("Wallet not connected");
+      },
+      signAllTransactions: async <
+        T extends Transaction | VersionedTransaction,
+      >(): Promise<T[]> => {
+        throw new Error("Wallet not connected");
+      },
+    };
 
-    return new Program<GmsolStore>(IDL as any, readOnlyProvider);
+    const readOnlyProvider = new AnchorProvider(connection, readOnlyWallet, {
+      commitment: "confirmed",
+      skipPreflight: true,
+    });
+
+    return new Program<GmsolStore>(IDL as GmsolStore, readOnlyProvider);
   }, [connection]);
 
   const privyWalletAddress = privyWallet?.address;
@@ -166,23 +182,24 @@ export const useGmsol = () => {
     (
       marketSymbol: string,
       collateralAmount: number,
-      direction: "long" | "short", // Used for future liquidation price calculation
+      _direction: "long" | "short",
       leverage: number,
-      orderVariant: string, // Used for fee tier selection when available
+      orderVariant: "market" | "limit",
       limitPrice?: number,
       solPrice?: number,
+      marketPrice?: number,
     ) => {
       const zeroResult = (lev: number) => ({
-        entryPrice: 0,
+        entryPrice: null as number | null,
         positionValue: 0,
         requiredMargin: 0,
-        estimatedFee: 0,
-        feeRate: 0,
+        estimatedFee: null as number | null,
+        feeRate: null as number | null,
         liquidationPrice: null as number | null,
         effectiveLeverage: lev,
         freeCollateral: 0,
         canAfford: false,
-        priceImpact: 0,
+        priceImpact: null as number | null,
       });
 
       // Find market info by name or indexToken
@@ -196,8 +213,8 @@ export const useGmsol = () => {
         return zeroResult(leverage);
       }
 
-      // Require SOL price for accurate calculations
-      if (!solPrice) {
+      // Require SOL price for collateral-based calculations
+      if (!solPrice || collateralAmount <= 0 || leverage <= 0) {
         return zeroResult(leverage);
       }
       const effectiveSolPrice = solPrice;
@@ -205,12 +222,9 @@ export const useGmsol = () => {
       // Position value = collateral × leverage
       const positionValue = collateralAmount * effectiveSolPrice * leverage;
 
-      // Use market-specific fee if available, otherwise default 0.1%
-      // GMXSol typical fee is ~0.05-0.1%
-      const feeRate = marketInfo?.rawAccount?.swapFee
-        ? Number(marketInfo.rawAccount.swapFee) / 1e9
-        : 0.001;
-      const estimatedFee = positionValue * feeRate;
+      // No reliable GMXSol perp fee source is wired into the app yet.
+      const feeRate = null as number | null;
+      const estimatedFee = null as number | null;
 
       // Required margin is the collateral in USD
       const requiredMargin = collateralAmount * effectiveSolPrice;
@@ -221,13 +235,29 @@ export const useGmsol = () => {
       // Can afford if wallet balance covers the collateral needed
       const canAfford = walletBalance >= collateralAmount;
 
-      // Entry price from limit price or 0 (will be filled from price feed)
-      const entryPrice = limitPrice ?? 0;
+      // For market orders, current price is the best available estimate.
+      // For limit orders, use the user-supplied limit price.
+      const entryPrice =
+        orderVariant === "limit"
+          ? limitPrice && limitPrice > 0
+            ? limitPrice
+            : null
+          : marketPrice && marketPrice > 0
+          ? marketPrice
+          : null;
+
+      const priceImpact =
+        orderVariant === "limit" &&
+        entryPrice !== null &&
+        marketPrice &&
+        marketPrice > 0
+          ? Math.abs(entryPrice - marketPrice) / marketPrice
+          : null;
 
       const maintenanceMargin = 0.01; // 1%
       const liquidationPrice: number | null =
-        entryPrice > 0
-          ? direction === "long"
+        entryPrice !== null && entryPrice > 0
+          ? _direction === "long"
             ? entryPrice * (1 - 1 / leverage + maintenanceMargin)
             : entryPrice * (1 + 1 / leverage - maintenanceMargin)
           : null;
@@ -242,7 +272,7 @@ export const useGmsol = () => {
         effectiveLeverage: leverage,
         freeCollateral: freeCollateralUsd,
         canAfford,
-        priceImpact: 0,
+        priceImpact,
       };
     },
     [markets, walletBalance],
@@ -328,7 +358,7 @@ export const useGmsol = () => {
         // Extract a readable message from any error shape
         let errMsg: string;
         if (err instanceof Error) {
-          const logsFromError = (err as any).logs as string[] | undefined;
+          const logsFromError = (err as ErrorWithLogs).logs;
           const logs = fetchedLogs?.length ? fetchedLogs : logsFromError;
           errMsg = logs?.length
             ? `${err.message}\nLogs:\n${logs.join("\n")}`
@@ -341,9 +371,9 @@ export const useGmsol = () => {
 
         const enrichedError = new Error(
           `Transaction failed after ${signatures.length} succeeded: ${errMsg}`,
-        );
-        (enrichedError as any).partialSignatures = signatures;
-        (enrichedError as any).cause = err;
+        ) as ErrorWithPartialSignatures;
+        enrichedError.partialSignatures = signatures;
+        enrichedError.cause = err;
         throw enrichedError;
       }
 
@@ -597,6 +627,7 @@ export const useGmsol = () => {
     [
       privyWallet,
       connection,
+      markets,
       orders,
       signAndSendTransactions,
       fetchPositionsAndOrders,

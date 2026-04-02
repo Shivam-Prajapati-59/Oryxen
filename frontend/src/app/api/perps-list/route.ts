@@ -1,11 +1,41 @@
 import { NextResponse } from "next/server";
 
+interface CoinGeckoDerivative {
+  contract_type?: string;
+  market?: string;
+  symbol?: string;
+  index_id?: string;
+}
+
+interface CoinGeckoMarket {
+  symbol: string;
+  image: string | null;
+}
+
+type SupportedPerp = CoinGeckoDerivative & {
+  market: string;
+  symbol: string;
+  index_id: string;
+};
+
+const SUPPORTED_PROTOCOLS: readonly string[] = [
+  "Drift Protocol",
+  "Hyperliquid (Futures)",
+];
+
+function isSupportedPerp(item: CoinGeckoDerivative): item is SupportedPerp {
+  return (
+    item.contract_type === "perpetual" &&
+    typeof item.market === "string" &&
+    SUPPORTED_PROTOCOLS.includes(item.market) &&
+    typeof item.symbol === "string" &&
+    typeof item.index_id === "string"
+  );
+}
+
 export async function GET() {
   const API_KEY = process.env.COINGECKO_API_KEY;
   const BASE_URL = "https://api.coingecko.com/api/v3";
-
-  // Define the protocols you want to support
-  const SUPPORTED_PROTOCOLS = ["Drift Protocol", "Hyperliquid (Futures)"];
 
   const headers = {
     accept: "application/json",
@@ -24,25 +54,21 @@ export async function GET() {
     if (!derivRes.ok || !marketRes.ok) {
       return NextResponse.json(
         { error: "CoinGecko Fetch Failed" },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
-    const derivData = await derivRes.json();
-    const marketData = await marketRes.json();
+    const derivData = (await derivRes.json()) as CoinGeckoDerivative[];
+    const marketData = (await marketRes.json()) as CoinGeckoMarket[];
 
     // Map symbols to images for fast lookup
     const imageMap = new Map(
-      marketData.map((coin: any) => [coin.symbol.toLowerCase(), coin.image])
+      marketData.map((coin) => [coin.symbol.toLowerCase(), coin.image]),
     );
 
     const filteredPerps = derivData
-      .filter(
-        (item: any) =>
-          item.contract_type === "perpetual" &&
-          SUPPORTED_PROTOCOLS.includes(item.market) // Filter for Drift & Hyperliquid only
-      )
-      .map((perp: any) => {
+      .filter(isSupportedPerp)
+      .map((perp) => {
         const baseSymbol = perp.index_id.toLowerCase();
 
         return {
@@ -55,10 +81,10 @@ export async function GET() {
       });
 
     return NextResponse.json(filteredPerps);
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: "Internal Server Error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

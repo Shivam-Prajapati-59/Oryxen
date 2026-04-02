@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Temporarily excluded by request.
+    "src/app/api/pacifica/**",
+    "src/features/pacifica/**",
+    "src/features/flash/**",
   ]),
 ]);
 

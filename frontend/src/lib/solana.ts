@@ -7,7 +7,17 @@
  */
 
 import { BN } from "@coral-xyz/anchor";
+import type {
+  ConnectedStandardSolanaWallet,
+  IdentifierString,
+} from "@privy-io/js-sdk-core";
 import { PublicKey, Transaction, VersionedTransaction } from "@solana/web3.js";
+
+interface VersionedMessageLike {
+  version?: number;
+}
+
+export type PrivySolanaWallet = ConnectedStandardSolanaWallet;
 
 // ─── Address validation ──────────────────────────────────────────────
 
@@ -26,10 +36,11 @@ export const isValidSolanaAddress = (address: string): boolean => {
 export const isVersionedTransaction = (
   tx: Transaction | VersionedTransaction,
 ): tx is VersionedTransaction => {
+  const message = (tx as { message?: VersionedMessageLike }).message;
   return (
     "version" in tx ||
     tx.constructor.name === "VersionedTransaction" ||
-    typeof (tx as any).message?.version === "number"
+    typeof message?.version === "number"
   );
 };
 
@@ -42,7 +53,7 @@ export const isVersionedTransaction = (
  * `{ publicKey, signTransaction, signAllTransactions }`.
  */
 export const createPrivyWalletAdapter = (
-  privyWallet: any,
+  privyWallet: PrivySolanaWallet,
   chainPrefix: string,
 ) => {
   const publicKey = new PublicKey(privyWallet.address);
@@ -62,7 +73,7 @@ export const createPrivyWalletAdapter = (
     }
 
     const result = await privyWallet.signTransaction({
-      chain: chainPrefix,
+      chain: chainPrefix as IdentifierString,
       transaction: serialized,
     });
 

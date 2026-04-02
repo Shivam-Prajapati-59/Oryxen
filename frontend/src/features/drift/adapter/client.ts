@@ -1,6 +1,6 @@
 import { DriftClient, initialize, type IWallet } from "@drift-labs/sdk-browser";
 import { Connection, PublicKey } from "@solana/web3.js";
-import { createPrivyWalletAdapter } from "@/lib/solana";
+import { createPrivyWalletAdapter, type PrivySolanaWallet } from "@/lib/solana";
 import { DRIFT_ENV, DRIFT_RPC_URL, DRIFT_CHAIN_PREFIX } from "../constants";
 
 let _connection: Connection | null = null;
@@ -22,7 +22,7 @@ export { sdkConfig };
  * calling `client.unsubscribe()` on cleanup.
  */
 export async function createDriftClient(
-  privyWallet: any,
+  privyWallet: PrivySolanaWallet,
 ): Promise<DriftClient> {
   const connection = getDriftConnection();
 

@@ -1,5 +1,7 @@
 import express from "express";
 import routes from "./src/routes/index";
+import helmet from "helmet";
+import { apiLimiter } from "./src/middleware/rateLimit";
 import "dotenv/config";
 import { WebSocketManager } from "./src/services/websocket/wsManager";
 
@@ -13,17 +15,36 @@ const PORT = process.env.PORT || 5000;
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// CORS middleware
+// Apply Helmet security headers
+app.use(helmet());
+
+// CORS middleware with strict domain locking
 app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*");
-  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-  res.header(
-    "Access-Control-Allow-Headers",
-    "Origin, X-Requested-With, Content-Type, Accept, Authorization",
-  );
+  const allowedOrigin = process.env.FRONTEND_URL || "http://localhost:3000";
+  const origin = req.headers.origin;
+
+  if (origin === allowedOrigin) {
+    res.header("Access-Control-Allow-Origin", origin);
+    
+    if (process.env.FRONTEND_SENDS_CREDENTIALS === "true") {
+      res.header("Access-Control-Allow-Credentials", "true");
+    }
+
+    res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    res.header(
+      "Access-Control-Allow-Headers",
+      "Origin, X-Requested-With, Content-Type, Accept, Authorization",
+    );
+  } else if (origin) {
+    if (req.method === "OPTIONS") {
+      res.status(403).json({ error: "Forbidden cross-origin request." });
+      return;
+    }
+  }
 
   if (req.method === "OPTIONS") {
-    return res.sendStatus(200);
+    res.sendStatus(200);
+    return;
   }
 
   next();
@@ -39,7 +60,8 @@ app.use((req, res, next) => {
 /*                                   Routes                                   */
 /* -------------------------------------------------------------------------- */
 
-app.use("/api", routes);
+// Apply general rate limiter to all API routes
+app.use("/api", apiLimiter, routes);
 
 app.get("/", (req, res) => {
   res.json({

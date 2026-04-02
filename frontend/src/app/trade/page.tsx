@@ -1,0 +1,12 @@
+import Container from "@/components/common/Container";
+import TradingCard from "@/components/TradingCard/TradingCard";
+
+export default function TradePage() {
+  return (
+    <Container>
+      <div className="pt-0">
+        <TradingCard />
+      </div>
+    </Container>
+  );
+}

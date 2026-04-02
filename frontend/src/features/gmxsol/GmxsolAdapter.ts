@@ -8,6 +8,7 @@ import type {
   OrderEstimate,
   Position,
 } from "../protocol-adapter/types";
+import type { CreateOrderKind } from "@gmsol-labs/gmsol-sdk";
 import type { useGmsol } from "./hooks/useGmsol";
 import { GMSOL_NETWORK } from "./constants";
 
@@ -179,7 +180,7 @@ export class GmxsolAdapter implements IProtocolAdapter {
       throw new Error(`Market at index ${params.marketIndex} not found`);
 
     // Map the generic OrderType to GMSOL's CreateOrderKind
-    let orderKind: string;
+    let orderKind: CreateOrderKind;
     switch (params.orderType) {
       case "market":
         orderKind = "MarketIncrease";
@@ -191,8 +192,8 @@ export class GmxsolAdapter implements IProtocolAdapter {
         orderKind = "LimitDecrease";
         break;
       case "stopLimit":
-        orderKind = "StopLossDecrease";
-        break;
+      orderKind = "StopLossDecrease";
+      break;
       default:
         orderKind = "MarketIncrease";
     }
@@ -227,7 +228,7 @@ export class GmxsolAdapter implements IProtocolAdapter {
       longToken: market.longToken,
       shortToken: market.shortToken,
       isLong: params.direction === "long",
-      orderKind: orderKind as any,
+      orderKind,
       sizeDeltaUsd: sizeUsd,
       amount,
       triggerPrice,

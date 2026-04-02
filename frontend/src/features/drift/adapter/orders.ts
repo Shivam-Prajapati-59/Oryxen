@@ -12,6 +12,7 @@ import {
 } from "@drift-labs/sdk-browser";
 import {
   type ExecuteTradeParams,
+  type ScaleOrderParams,
   type TradeResult,
   toPositionDirection,
   toOrderType,
@@ -201,14 +202,25 @@ export async function placeOrder(
 ): Promise<TradeResult> {
   try {
     if (params.orderVariant === "scale") {
-      if (!params.startPrice || !params.endPrice || !params.orderCount)
+      if (!isScaleOrderParams(params))
         throw new Error(
           "Scale orders require startPrice, endPrice, and orderCount",
         );
-      return await placeScaleOrders(client, params as any);
+      return await placeScaleOrders(client, params);
     }
     return await placeSingleOrder(client, params);
   } catch (err) {
     throw new Error(normaliseDriftError(err));
   }
+}
+
+function isScaleOrderParams(
+  params: ExecuteTradeParams,
+): params is ScaleOrderParams {
+  return (
+    params.orderVariant === "scale" &&
+    params.startPrice !== undefined &&
+    params.endPrice !== undefined &&
+    params.orderCount !== undefined
+  );
 }

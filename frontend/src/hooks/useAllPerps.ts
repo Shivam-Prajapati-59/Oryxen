@@ -30,9 +30,9 @@ interface PerpRawData {
   // Define the metadata object
   metadata: {
     contractIndex: number;
-    [key: string]: any; // Allow other metadata fields
+    [key: string]: unknown; // Allow other metadata fields
   };
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 // Update the response to use the Raw Data type

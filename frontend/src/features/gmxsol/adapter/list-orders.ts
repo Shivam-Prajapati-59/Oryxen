@@ -22,6 +22,41 @@ const ORDER_KINDS: Record<number, string> = {
   7: "Liquidation",
 };
 
+interface Base58Like {
+  toBase58?: () => string;
+}
+
+interface OrderHeaderShape {
+  id?: { toString(): string };
+  owner?: Base58Like;
+  store?: Base58Like;
+  actionState?: number;
+}
+
+interface OrderParamsShape {
+  kind?: number;
+  side?: number;
+  sizeDeltaValue?: { toString(): string };
+  initialCollateralDeltaAmount?: { toString(): string };
+  triggerPrice?: { toString(): string };
+  acceptablePrice?: { toString(): string };
+  collateralToken?: Base58Like;
+}
+
+interface OrderTokensShape {
+  initialCollateral?: { token?: Base58Like };
+  finalOutputToken?: { token?: Base58Like };
+  longToken?: { token?: Base58Like };
+  shortToken?: { token?: Base58Like };
+}
+
+interface OrderAccountShape {
+  header?: OrderHeaderShape;
+  params?: OrderParamsShape;
+  tokens?: OrderTokensShape;
+  marketToken?: Base58Like;
+}
+
 export interface OrderInfo {
   address: string;
   id: string;
@@ -40,8 +75,7 @@ export interface OrderInfo {
   finalOutputToken: string;
   longToken: string;
   shortToken: string;
-  //   eslint-disable-next-line @typescript-eslint/no-explicit-any
-  rawAccount: any;
+  rawAccount: OrderAccountShape;
 }
 
 /**
@@ -67,7 +101,7 @@ export const listOrders = async (
     ]);
 
     return orders.map((o) => {
-      const acct = o.account as any;
+      const acct = o.account as OrderAccountShape;
       const header = acct.header ?? {};
       const params = acct.params ?? {};
       const tokens = acct.tokens ?? {};

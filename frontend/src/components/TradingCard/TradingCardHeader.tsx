@@ -4,7 +4,7 @@ import { usePriceFeed } from "@/hooks/usePriceFeed";
 import { PerpFundingRate } from "@/hooks/useFundingRates";
 import { extractFundingRates } from "./helpers/tradingHeaderDialog.helpers";
 import Image from "next/image";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 
 interface TradingCardHeaderProps {
     isOpen: boolean;
@@ -17,12 +17,9 @@ const TradingCardHeader = ({ isOpen, setIsOpen, selectedMarket }: TradingCardHea
 
     // 2. Hooks
     const { prices } = usePriceFeed([baseSymbol]);
-    const [imageError, setImageError] = useState(false);
-
-    // Reset image error when market changes
-    useEffect(() => {
-        setImageError(false);
-    }, [selectedMarket]);
+    const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null);
+    const marketImageUrl = selectedMarket.imageUrl;
+    const imageError = !marketImageUrl || failedImageUrl === marketImageUrl;
 
     const currentPrice = prices[baseSymbol];
 
@@ -57,14 +54,15 @@ const TradingCardHeader = ({ isOpen, setIsOpen, selectedMarket }: TradingCardHea
             <div className="flex flex-col lg:flex-row lg:justify-between justify-center p-4 lg:py-3 gap-1 lg:flex-1">
                 <div className="flex items-center gap-3 relative">
                     {/* Market Logo */}
-                    {selectedMarket.imageUrl && !imageError ? (
+                    {marketImageUrl && !imageError ? (
                         <Image
-                            src={selectedMarket.imageUrl}
+                            key={marketImageUrl}
+                            src={marketImageUrl}
                             alt={selectedMarket.symbol}
                             width={24}
                             height={24}
                             className="rounded-sm shrink-0"
-                            onError={() => setImageError(true)}
+                            onError={() => setFailedImageUrl(marketImageUrl)}
                         />
                     ) : (
                         <div className="w-6 h-6 bg-linear-to-tr from-[#9945FF] to-[#14F195] rounded-sm shrink-0" />

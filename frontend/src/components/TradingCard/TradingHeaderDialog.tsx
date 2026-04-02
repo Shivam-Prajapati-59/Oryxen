@@ -37,9 +37,8 @@ const ITEM_HEIGHT = 56;
 const TABLE_COLS = "minmax(130px, 2fr) minmax(80px, 1.2fr) minmax(120px, 1.5fr) minmax(70px, 1fr) minmax(70px, 1fr)";
 
 const Icon = ({ url, symbol }: { url?: string; symbol: string }) => {
-    const [error, setError] = useState(false);
-
-    useEffect(() => { setError(false); }, [url]);
+    const [failedUrl, setFailedUrl] = useState<string | null>(null);
+    const error = !url || failedUrl === url;
 
     if (!url || error) {
         const firstLetter = symbol.charAt(0).toUpperCase();
@@ -58,7 +57,7 @@ const Icon = ({ url, symbol }: { url?: string; symbol: string }) => {
             src={url}
             alt={symbol}
             className="w-full h-full rounded-full object-cover"
-            onError={() => setError(true)}
+            onError={() => setFailedUrl(url)}
             loading="eager"
             decoding="async"
         />
@@ -90,7 +89,15 @@ const TradingHeaderDialog = ({ onClose, onSelectMarket, markets: data, isLoading
 
     const { prices } = usePriceFeed(visibleSymbols);
 
+    const resetScrollPosition = () => {
+        setVisibleRange({ start: 0, end: 20 });
+        if (scrollContainerRef.current) {
+            scrollContainerRef.current.scrollTop = 0;
+        }
+    };
+
     const handleSort = (key: SortKey) => {
+        resetScrollPosition();
         setSortState((prev) => nextSortState(prev, key));
     };
 
@@ -133,13 +140,6 @@ const TradingHeaderDialog = ({ onClose, onSelectMarket, markets: data, isLoading
         handleScroll();
         return () => container.removeEventListener("scroll", handleScroll);
     }, []);
-
-    useEffect(() => {
-        setVisibleRange({ start: 0, end: 20 });
-        if (scrollContainerRef.current) {
-            scrollContainerRef.current.scrollTop = 0;
-        }
-    }, [search, protocolFilter, sortState]);
 
     const renderRateWithArrow = (rate: number | undefined) => {
         if (rate === undefined || Number.isNaN(rate)) {
@@ -202,7 +202,10 @@ const TradingHeaderDialog = ({ onClose, onSelectMarket, markets: data, isLoading
                         type="text"
                         placeholder="Search markets..."
                         value={search}
-                        onChange={(e) => setSearch(e.target.value)}
+                        onChange={(e) => {
+                            resetScrollPosition();
+                            setSearch(e.target.value);
+                        }}
                         className="pl-10 pr-8 h-10 bg-secondary/50 border-transparent focus-visible:border-ring/30 focus-visible:ring-1 focus-visible:ring-ring/10"
                     />
                     {search && (
@@ -217,7 +220,10 @@ const TradingHeaderDialog = ({ onClose, onSelectMarket, markets: data, isLoading
 
                 <Select
                     value={protocolFilter}
-                    onValueChange={(value: "all" | "drift" | "gmxsol") => setProtocolFilter(value)}
+                    onValueChange={(value: "all" | "drift" | "gmxsol") => {
+                        resetScrollPosition();
+                        setProtocolFilter(value);
+                    }}
                 >
                     <SelectTrigger className="h-10 w-[120px] shrink-0 bg-secondary/50 border-transparent focus-visible:border-ring/30 text-sm">
                         <SelectValue placeholder="Protocol" />
@@ -312,7 +318,7 @@ const TradingHeaderDialog = ({ onClose, onSelectMarket, markets: data, isLoading
                     <div className="flex flex-col items-center justify-center h-full text-center p-8 opacity-60">
                         <Search className="w-10 h-10 text-muted-foreground mb-3 opacity-20" />
                         <h3 className="text-sm font-medium text-foreground">No markets found</h3>
-                        <p className="text-xs text-muted-foreground mt-1">Try "{search}" on a different protocol</p>
+                        <p className="text-xs text-muted-foreground mt-1">Try &quot;{search}&quot; on a different protocol</p>
                     </div>
                 )}
             </div>

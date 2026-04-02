@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import TradingCardHeader from "./TradingCardHeader";
 import TradingViewWidget from "../custom/TradingViewWidget";
 import TradingCardFooter from "./TradingCardFooter";
@@ -10,10 +10,42 @@ import { PerpFundingRate, useFundingRates } from "@/hooks/useFundingRates";
 import { useGmxsolMarkets } from "@/hooks/useGmxsolMarkets";
 import Container from "../common/Container";
 
+const DEFAULT_SELECTED_MARKET: PerpFundingRate = {
+    protocol: "drift",
+    symbol: "SOL-PERP",
+    imageUrl: "https://drift-public.s3.eu-central-1.amazonaws.com/assets/icons/markets/sol.svg",
+    maxleverage: 20,
+    price: 0,
+    fundingRate: 0,
+    timestamp: 0,
+    projections: {
+        current: 0,
+        h4: 0,
+        h8: 0,
+        h12: 0,
+        d1: 0,
+        d7: 0,
+        d30: 0,
+        apr: 0
+    },
+    metadata: {
+        contractIndex: 0,
+        baseCurrency: "",
+        quoteCurrency: "",
+        openInterest: "0",
+        indexPrice: "0",
+        nextFundingRate: "0",
+        nextFundingRateTimestamp: "0",
+        high24h: "0",
+        low24h: "0",
+        volume24h: "0"
+    }
+};
+
 const TradingCard = () => {
     // 1. Fetch Drift Rates
     const { data: response, isLoading: driftLoading, isError: driftError } = useFundingRates("drift");
-    const driftPerps = response?.data ?? [];
+    const driftPerps = useMemo(() => response?.data ?? [], [response?.data]);
 
     // 2. Fetch GMXSol Markets
     const { data: gmxsolPerps, isLoading: gmxsolLoading, isError: gmxsolError } = useGmxsolMarkets();
@@ -27,54 +59,25 @@ const TradingCard = () => {
     }, [driftPerps, gmxsolPerps]);
 
     const [isDialogOpen, setIsDialogOpen] = useState(false);
-
-    // 2. Initial State (Must match PerpFundingRate interface)
-    const [selectedMarket, setSelectedMarket] = useState<PerpFundingRate>({
-        protocol: "drift",
-        symbol: "SOL-PERP",
-        imageUrl: "https://drift-public.s3.eu-central-1.amazonaws.com/assets/icons/markets/sol.svg",
-        maxleverage: 20,
-        price: 0,
-        fundingRate: 0,
-        timestamp: Date.now(),
-        projections: {
-            current: 0,
-            h4: 0,
-            h8: 0,
-            h12: 0,
-            d1: 0,
-            d7: 0,
-            d30: 0,
-            apr: 0
-        },
-        metadata: {
-            contractIndex: 0,
-            baseCurrency: "",
-            quoteCurrency: "",
-            openInterest: "0",
-            indexPrice: "0",
-            nextFundingRate: "0",
-            nextFundingRateTimestamp: "0",
-            high24h: "0",
-            low24h: "0",
-            volume24h: "0"
-        }
-    });
-
-    // 3. Effect: When API data loads, update the "dummy" initial state with real data
-    useEffect(() => {
-        if (allPerps && allPerps.length > 0) {
-            // Find the currently selected symbol in the fresh API data
-            const freshData = allPerps.find(p => p.symbol === selectedMarket.symbol && p.protocol === selectedMarket.protocol);
-            if (freshData) {
-                // Update state so Funding/OI are not 0
-                setSelectedMarket(freshData);
-            }
-        }
-    }, [allPerps, selectedMarket.symbol, selectedMarket.protocol]); // Only run when data is fetched
+    const [selectedMarketKey, setSelectedMarketKey] = useState(() => ({
+        protocol: DEFAULT_SELECTED_MARKET.protocol,
+        symbol: DEFAULT_SELECTED_MARKET.symbol,
+    }));
+    const selectedMarket = useMemo(
+        () =>
+            allPerps.find(
+                (market) =>
+                    market.symbol === selectedMarketKey.symbol &&
+                    market.protocol === selectedMarketKey.protocol,
+            ) ?? DEFAULT_SELECTED_MARKET,
+        [allPerps, selectedMarketKey],
+    );
 
     const handleMarketSelect = (market: PerpFundingRate) => {
-        setSelectedMarket(market);
+        setSelectedMarketKey({
+            protocol: market.protocol,
+            symbol: market.symbol,
+        });
         setIsDialogOpen(false);
     };
 

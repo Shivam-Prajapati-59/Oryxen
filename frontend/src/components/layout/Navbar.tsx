@@ -17,7 +17,7 @@ export default function Navbar() {
     const pathname = usePathname();
 
     // Hide global navbar on landing page (it has its own navbar)
-    if (pathname === '/landing') {
+    if (pathname === '/' || pathname === '/landing') {
         return null;
     }
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { Moon, Sun } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useSyncExternalStore } from 'react';
 import { useTheme } from 'next-themes';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -13,16 +13,14 @@ export interface ThemeToggleButtonProps {
     className?: string;
 }
 
+const subscribe = () => () => {};
+
 export const ThemeToggleButton = ({
     showLabel = false,
     className,
 }: ThemeToggleButtonProps) => {
-    const [mounted, setMounted] = useState(false);
+    const mounted = useSyncExternalStore(subscribe, () => true, () => false);
     const { setTheme, resolvedTheme } = useTheme();
-
-    useEffect(() => {
-        setMounted(true);
-    }, []);
 
     const toggleTheme = useCallback(() => {
         setTheme(resolvedTheme === 'dark' ? 'light' : 'dark');

@@ -4,10 +4,11 @@ import React, { useEffect, useState, useMemo } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
-import { Loader2, TrendingUp, TrendingDown, Info, AlertTriangle } from "lucide-react";
+import { Loader2, TrendingUp, TrendingDown, Info } from "lucide-react";
 import { useDrift } from "@/features/drift";
-import type { OrderVariant, TradeDirection } from "@/features/drift";
+import type { ExecuteTradeParams, OrderVariant, TradeDirection } from "@/features/drift";
 import { bnToBase, bnToPrice } from "@/features/drift";
+import type { Order } from "@drift-labs/sdk-browser";
 
 // Environment configuration
 const DRIFT_ENV = "devnet"; // Change to "mainnet-beta" for production
@@ -36,6 +37,9 @@ const ORDER_TYPES: { value: OrderVariant; label: string }[] = [
 
 // Leverage options
 const LEVERAGE_OPTIONS = [1, 2, 3, 5, 10, 20];
+
+const hasVariant = (value: unknown, key: string): boolean =>
+    typeof value === "object" && value !== null && key in value;
 
 const DemoDrift = () => {
     const { authenticated, login, ready } = usePrivy();
@@ -173,7 +177,7 @@ const DemoDrift = () => {
             }
 
             // Build order params based on order type
-            const orderParams: any = {
+            const orderParams: ExecuteTradeParams = {
                 marketIndex: perpMarketIndex,
                 direction: tradeDirection,
                 baseAssetAmount: leveragedAmount,
@@ -978,34 +982,34 @@ const DemoDrift = () => {
                                         </div>
                                     );
 
-                                    const getStatusLabel = (status: any) => {
-                                        if (status?.open) return "Open";
-                                        if (status?.filled) return "Filled";
-                                        if (status?.canceled) return "Cancelled";
+                                    const getStatusLabel = (status: Order["status"]) => {
+                                        if (hasVariant(status, "open")) return "Open";
+                                        if (hasVariant(status, "filled")) return "Filled";
+                                        if (hasVariant(status, "canceled")) return "Cancelled";
                                         return "Init";
                                     };
-                                    const getStatusColor = (status: any) => {
-                                        if (status?.open) return "text-blue-500";
-                                        if (status?.filled) return "text-green-500";
-                                        if (status?.canceled) return "text-red-500";
+                                    const getStatusColor = (status: Order["status"]) => {
+                                        if (hasVariant(status, "open")) return "text-blue-500";
+                                        if (hasVariant(status, "filled")) return "text-green-500";
+                                        if (hasVariant(status, "canceled")) return "text-red-500";
                                         return "text-muted-foreground";
                                     };
-                                    const getOrderTypeLabel = (ot: any) => {
-                                        if (ot?.market) return "Market";
-                                        if (ot?.limit) return "Limit";
-                                        if (ot?.triggerMarket) return "Trigger Market";
-                                        if (ot?.triggerLimit) return "Trigger Limit";
-                                        if (ot?.oracle) return "Oracle";
+                                    const getOrderTypeLabel = (ot: Order["orderType"]) => {
+                                        if (hasVariant(ot, "market")) return "Market";
+                                        if (hasVariant(ot, "limit")) return "Limit";
+                                        if (hasVariant(ot, "triggerMarket")) return "Trigger Market";
+                                        if (hasVariant(ot, "triggerLimit")) return "Trigger Limit";
+                                        if (hasVariant(ot, "oracle")) return "Oracle";
                                         return "Unknown";
                                     };
-                                    const getDirectionLabel = (dir: any) => {
-                                        if (dir?.long) return "Long";
-                                        if (dir?.short) return "Short";
+                                    const getDirectionLabel = (dir: Order["direction"]) => {
+                                        if (hasVariant(dir, "long")) return "Long";
+                                        if (hasVariant(dir, "short")) return "Short";
                                         return "—";
                                     };
-                                    const getDirectionColor = (dir: any) => {
-                                        if (dir?.long) return "text-green-500";
-                                        if (dir?.short) return "text-red-500";
+                                    const getDirectionColor = (dir: Order["direction"]) => {
+                                        if (hasVariant(dir, "long")) return "text-green-500";
+                                        if (hasVariant(dir, "short")) return "text-red-500";
                                         return "";
                                     };
 
@@ -1028,7 +1032,7 @@ const DemoDrift = () => {
                                                         </tr>
                                                     </thead>
                                                     <tbody>
-                                                        {orders.map((order: any) => {
+                                                        {orders.map((order) => {
                                                             const marketMeta = PERP_MARKETS.find(m => m.index === order.marketIndex);
                                                             const size = bnToBase(order.baseAssetAmount);
                                                             const filled = bnToBase(order.baseAssetAmountFilled);

@@ -6,9 +6,10 @@ interface TradeEstimate {
     liquidationPrice: number | null;
     requiredMargin: number;
     positionValue: number;
-    entryPrice: number;
+    entryPrice: number | null;
     freeCollateral: number;
     canAfford: boolean;
+    priceImpact: number | null;
 }
 
 interface PreTradeStatsProps {
@@ -63,11 +64,19 @@ export function PreTradeStats({
                 </span>
             </div>
             <div className="flex justify-between">
+                <span>Est. Entry Price</span>
+                <span className="text-foreground font-mono font-medium">
+                    {tradeEstimate?.entryPrice
+                        ? formatPrice(tradeEstimate.entryPrice)
+                        : "-"}
+                </span>
+            </div>
+            <div className="flex justify-between">
 
                 <span>Price Impact</span>
-                <span className={`font-mono font-medium ${tradeEstimate && Math.abs(tradeEstimate.entryPrice - currentPrice) / currentPrice > 0.01 ? "text-yellow-500" : "text-foreground"}`}>
-                    {tradeEstimate && currentPrice > 0
-                        ? `${((Math.abs(tradeEstimate.entryPrice - currentPrice) / currentPrice) * 100).toFixed(3)}%`
+                <span className={`font-mono font-medium ${tradeEstimate && tradeEstimate.priceImpact !== null && tradeEstimate.priceImpact > 0.01 ? "text-yellow-500" : "text-foreground"}`}>
+                    {tradeEstimate?.priceImpact !== null && tradeEstimate?.priceImpact !== undefined
+                        ? `${(tradeEstimate.priceImpact * 100).toFixed(3)}%`
                         : "-"}
                 </span>
             </div>

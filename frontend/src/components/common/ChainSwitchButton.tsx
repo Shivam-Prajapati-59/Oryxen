@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useSyncExternalStore } from "react";
 import { getSolanaNetwork, setSolanaNetwork } from "@/config/env";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,22 +16,22 @@ const NETWORKS = [
     { value: "mainnet" as const, label: "Mainnet", color: "text-emerald-500" },
 ];
 
-const ChainSwitchButton = () => {
-    const [mounted, setMounted] = useState(false);
-    const [current, setCurrent] = useState<"devnet" | "mainnet">("devnet");
+const subscribe = () => () => {};
 
-    // Read persisted network on mount (client-only)
-    useEffect(() => {
-        setCurrent(getSolanaNetwork());
-        setMounted(true);
-    }, []);
+const ChainSwitchButton = () => {
+    const mounted = useSyncExternalStore(subscribe, () => true, () => false);
+    const current = useSyncExternalStore(
+        subscribe,
+        getSolanaNetwork,
+        () => "devnet" as const,
+    );
 
     const handleSwitch = (network: "devnet" | "mainnet") => {
         if (network === current) return;
         setSolanaNetwork(network); // persists + reloads
     };
 
-    const activeNetwork = NETWORKS.find((n) => n.value === current)!;
+    const activeNetwork = NETWORKS.find((n) => n.value === current) ?? NETWORKS[0];
 
     if (!mounted) {
         return (
