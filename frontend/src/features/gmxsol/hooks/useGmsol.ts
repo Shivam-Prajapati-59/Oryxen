@@ -225,11 +225,12 @@ export const useGmsol = () => {
       const entryPrice = limitPrice ?? 0;
 
       const maintenanceMargin = 0.01; // 1%
-      const liquidationPrice: number | null = entryPrice > 0 ? (
-        direction === "long"
-          ? entryPrice * (1 - 1 / leverage + maintenanceMargin)
-          : entryPrice * (1 + 1 / leverage - maintenanceMargin)
-      ) : null;
+      const liquidationPrice: number | null =
+        entryPrice > 0
+          ? direction === "long"
+            ? entryPrice * (1 - 1 / leverage + maintenanceMargin)
+            : entryPrice * (1 + 1 / leverage - maintenanceMargin)
+          : null;
 
       return {
         entryPrice,

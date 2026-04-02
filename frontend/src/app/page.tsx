@@ -2,7 +2,8 @@
 
 import Container from "@/components/common/Container";
 import TradingCard from "@/components/TradingCard/TradingCard";
-
+import DemoGmSol from "@/components/demo/DemoGmXSol";
+import DemoDrift from "@/components/demo/DemoDrift";
 
 export default function Home() {
   return (
@@ -14,7 +15,7 @@ export default function Home() {
       {/* <DemoDrift /> */}
       {/* <DemoFlash /> */}
       {/* <DemoGmt /> */}
-      {/* <DemoGmSol /> */}
+      <DemoGmSol />
     </Container>
   );
 }

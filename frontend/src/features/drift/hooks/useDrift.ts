@@ -35,7 +35,14 @@ import type {
   OrderVariant,
   TradeDirection,
 } from "../types";
-import { usePrivy } from "@privy-io/react-auth";
+
+interface EnsureMarginParams {
+  requiredMarginUsd: number;
+  collateralPriceUsd: number;
+  collateralSymbol?: string;
+  subAccountId?: number;
+  userAccountName?: string;
+}
 
 export const useDrift = () => {
   const { wallets } = useWallets();
@@ -73,9 +80,8 @@ export const useDrift = () => {
   }, [wallets]);
 
   // ─── Helpers ───────────────────────────────────────────────────────
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const safeSet = useCallback(
-    (setter: React.Dispatch<React.SetStateAction<any>>, value: unknown) => {
+    <T,>(setter: React.Dispatch<React.SetStateAction<T>>, value: T) => {
       if (isMountedRef.current) setter(value);
     },
     [],
@@ -312,7 +318,7 @@ export const useDrift = () => {
         };
       });
     },
-    [driftClient, user, withLoading, safeSet, fetchWalletBalance],
+    [driftClient, user, withLoading, safeSet, fetchWalletBalance, connection],
   );
 
   // ─── Orders ────────────────────────────────────────────────────────
@@ -323,6 +329,107 @@ export const useDrift = () => {
       return withLoading(() => adapterPlaceOrder(driftClient, params));
     },
     [driftClient, isInitialized, withLoading],
+  );
+
+  const ensureMarginForTrade = useCallback(
+    async ({
+      requiredMarginUsd,
+      collateralPriceUsd,
+      collateralSymbol = "SOL",
+      subAccountId = 0,
+      userAccountName = "Trading Account",
+    }: EnsureMarginParams) => {
+      if (!driftClient) throw new Error("Drift client not initialized");
+      if (!isInitialized) throw new Error("Drift client not fully initialized");
+      if (requiredMarginUsd <= 0) return null;
+      if (collateralPriceUsd <= 0) {
+        throw new Error(`Invalid ${collateralSymbol} price for margin deposit`);
+      }
+
+      return withLoading(async () => {
+        let driftUser = user ?? driftClient.getUser();
+        let accountExists = userAccountExists;
+
+        if (accountExists !== true) {
+          try {
+            accountExists = await driftUser.exists();
+          } catch {
+            accountExists = false;
+          }
+
+          if (!accountExists) {
+            await driftClient.initializeUserAccount(subAccountId, userAccountName);
+            safeSet(setUserAccountExists, true);
+          } else {
+            safeSet(setUserAccountExists, true);
+          }
+        }
+
+        await driftClient.fetchAccounts();
+        driftUser = driftClient.getUser();
+        safeSet(setUser, driftUser);
+
+        const freeCollateralUsd = bnToUsd(driftUser.getFreeCollateral());
+        const marginShortfallUsd = Math.max(0, requiredMarginUsd - freeCollateralUsd);
+
+        if (marginShortfallUsd <= 0.01) {
+          return {
+            deposited: false,
+            depositAmount: 0,
+            freeCollateralUsd,
+          };
+        }
+
+        const feeBufferUsd = Math.max(1, requiredMarginUsd * 0.01);
+        const depositAmount = Number(
+          ((marginShortfallUsd + feeBufferUsd) / collateralPriceUsd).toFixed(6),
+        );
+
+        if (depositAmount <= 0) {
+          return {
+            deposited: false,
+            depositAmount: 0,
+            freeCollateralUsd,
+          };
+        }
+
+        if (walletBalance < depositAmount) {
+          throw new Error(
+            `Insufficient wallet balance. Need ${depositAmount.toFixed(4)} ${collateralSymbol} available to fund margin.`,
+          );
+        }
+
+        const depositResult = await adapterDeposit(
+          driftClient,
+          depositAmount,
+          collateralSymbol,
+          subAccountId,
+        );
+
+        await driftClient.fetchAccounts();
+        driftUser = driftClient.getUser();
+        safeSet(setUser, driftUser);
+        safeSet(setUserAccountExists, true);
+        await fetchWalletBalance();
+
+        return {
+          deposited: true,
+          depositAmount,
+          freeCollateralUsd: bnToUsd(driftUser.getFreeCollateral()),
+          txSig: depositResult.txSig,
+        };
+      });
+    },
+    [
+      driftClient,
+      isInitialized,
+      user,
+      userAccountExists,
+      walletBalance,
+      withLoading,
+      safeSet,
+      fetchWalletBalance,
+    ],
   );
 
   // ─── Market data ──────────────────────────────────────────────────
@@ -431,7 +538,7 @@ export const useDrift = () => {
     try {
       const userAccount = user.getUserAccount();
       const allOrders = userAccount.orders ?? [];
-      return allOrders.filter((o: any) => o.orderId !== 0);
+      return allOrders.filter((o) => o.orderId !== 0);
     } catch {
       return [];
     }
@@ -626,6 +733,7 @@ export const useDrift = () => {
     clearError,
     refreshUser,
     fetchWalletBalance,
+    ensureMarginForTrade,
 
     // Queries (no hardcoded values)
     getOraclePrice,

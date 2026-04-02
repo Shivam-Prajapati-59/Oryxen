@@ -11,6 +11,13 @@ interface OrderOptionsSelectorProps {
     setPostOnly: Dispatch<SetStateAction<boolean>>;
     tpslEnabled: boolean;
     setTpslEnabled: Dispatch<SetStateAction<boolean>>;
+    takeProfitPrice: string;
+    setTakeProfitPrice: Dispatch<SetStateAction<string>>;
+    stopLossPrice: string;
+    setStopLossPrice: Dispatch<SetStateAction<string>>;
+    currentPrice: number | null;
+    tradeAmount: string;
+    leverage: number;
 }
 
 export function OrderOptionsSelector({
@@ -20,8 +27,27 @@ export function OrderOptionsSelector({
     postOnly,
     setPostOnly,
     tpslEnabled,
-    setTpslEnabled
+    setTpslEnabled,
+    takeProfitPrice,
+    setTakeProfitPrice,
+    stopLossPrice,
+    setStopLossPrice,
+    currentPrice,
+    tradeAmount,
+    leverage
 }: OrderOptionsSelectorProps) {
+
+    const positionSize = parseFloat(tradeAmount) * leverage || 0;
+    const tpPriceNum = parseFloat(takeProfitPrice);
+    const slPriceNum = parseFloat(stopLossPrice);
+
+    const tpGain = (takeProfitPrice && currentPrice && !isNaN(tpPriceNum))
+        ? ((tpPriceNum - currentPrice) * positionSize).toFixed(2)
+        : "";
+    const slLoss = (stopLossPrice && currentPrice && !isNaN(slPriceNum))
+        ? ((currentPrice - slPriceNum) * positionSize).toFixed(2)
+        : "";
+
     return (
         <>
             <div className="flex flex-wrap gap-x-6 gap-y-2">
@@ -78,6 +104,8 @@ export function OrderOptionsSelector({
                                 <Input
                                     type="number"
                                     placeholder="0"
+                                    value={takeProfitPrice}
+                                    onChange={(e) => setTakeProfitPrice(e.target.value)}
                                     className="h-9 w-full bg-transparent pl-10 text-right text-base font-medium border dark:border-white/10 border-black/20 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                 />
                             </div>
@@ -89,6 +117,8 @@ export function OrderOptionsSelector({
                                 <Input
                                     type="number"
                                     placeholder="0"
+                                    readOnly
+                                    value={tpGain}
                                     className="h-9 w-full bg-transparent pl-12 pr-8 text-right text-base font-medium border dark:border-white/10 border-black/20 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                 />
                                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-medium">
@@ -112,6 +142,8 @@ export function OrderOptionsSelector({
                                 <Input
                                     type="number"
                                     placeholder="0"
+                                    value={stopLossPrice}
+                                    onChange={(e) => setStopLossPrice(e.target.value)}
                                     className="h-9 w-full bg-transparent pl-10 text-right text-base font-medium border dark:border-white/10 border-black/20 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                 />
                             </div>
@@ -123,6 +155,8 @@ export function OrderOptionsSelector({
                                 <Input
                                     type="number"
                                     placeholder="0"
+                                    readOnly
+                                    value={slLoss}
                                     className="h-9 w-full bg-transparent pl-12 pr-8 text-right text-base font-medium border dark:border-white/10 border-black/20 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                 />
                                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-medium">

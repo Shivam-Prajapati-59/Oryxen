@@ -1,8 +1,8 @@
 interface TradeEstimate {
-    makerFee: number;
-    takerFee: number;
-    makerFeeRate: number;
-    takerFeeRate: number;
+    makerFee: number | null;
+    takerFee: number | null;
+    makerFeeRate: number | null;
+    takerFeeRate: number | null;
     liquidationPrice: number | null;
     requiredMargin: number;
     positionValue: number;
@@ -13,23 +13,26 @@ interface TradeEstimate {
 
 interface PreTradeStatsProps {
     tradeEstimate: TradeEstimate | null;
-    tradeAmount: string;
-    leverage: number;
     baseSymbol: string;
     orderType: "market" | "limit";
-    marketInfo: any | null; // From Drift
     formatPrice: (price: number | null | undefined) => string;
+    currentPrice: number;
 }
 
 export function PreTradeStats({
     tradeEstimate,
-    tradeAmount,
-    leverage,
     baseSymbol,
     orderType,
-    marketInfo,
-    formatPrice
+    formatPrice,
+    currentPrice
 }: PreTradeStatsProps) {
+    const activeFee = orderType === "market"
+        ? tradeEstimate?.takerFee ?? null
+        : tradeEstimate?.makerFee ?? null;
+    const activeFeeRate = orderType === "market"
+        ? tradeEstimate?.takerFeeRate ?? null
+        : tradeEstimate?.makerFeeRate ?? null;
+
     return (
         <div className="space-y-2 text-sm text-muted-foreground">
             <div className="flex justify-between">
@@ -43,8 +46,11 @@ export function PreTradeStats({
             <div className="flex justify-between">
                 <span>Order Size</span>
                 <span className="text-foreground font-mono font-medium">
-                    {tradeEstimate
-                        ? `${(parseFloat(tradeAmount) * leverage || 0).toFixed(4)} SOL`
+                    {tradeEstimate && currentPrice > 0
+                        ? (() => {
+                            const size = tradeEstimate.positionValue / currentPrice;
+                            return `${size.toFixed(4)} ${baseSymbol}`;
+                        })()
                         : "-"}
                 </span>
             </div>
@@ -57,31 +63,24 @@ export function PreTradeStats({
                 </span>
             </div>
             <div className="flex justify-between">
-                <span>Fees ({orderType === "market" ? "Taker" : "Maker"})</span>
-                <span className="text-foreground font-mono font-medium">
-                    {tradeEstimate
-                        ? <>
-                            ${orderType === "market"
-                                ? tradeEstimate.takerFee.toFixed(4)
-                                : tradeEstimate.makerFee.toFixed(4)}
-                            <span className="text-xs text-muted-foreground ml-1">
-                                ({(orderType === "market"
-                                    ? tradeEstimate.takerFeeRate * 100
-                                    : tradeEstimate.makerFeeRate * 100
-                                ).toFixed(3)}%)
-                            </span>
-                        </>
+
+                <span>Price Impact</span>
+                <span className={`font-mono font-medium ${tradeEstimate && Math.abs(tradeEstimate.entryPrice - currentPrice) / currentPrice > 0.01 ? "text-yellow-500" : "text-foreground"}`}>
+                    {tradeEstimate && currentPrice > 0
+                        ? `${((Math.abs(tradeEstimate.entryPrice - currentPrice) / currentPrice) * 100).toFixed(3)}%`
                         : "-"}
                 </span>
             </div>
             <div className="flex justify-between">
-                <span>Open Interest</span>
-                <span className="text-emerald-500 font-mono font-medium">
-                    {marketInfo
-                        ? formatPrice(
-                            ((marketInfo.openInterestLong ?? 0) + (marketInfo.openInterestShort ?? 0))
-                            * (marketInfo.oraclePrice ?? 0)
-                        )
+                <span>Fees ({orderType === "market" ? "Taker" : "Maker"})</span>
+                <span className="text-foreground font-mono font-medium">
+                    {tradeEstimate && activeFee !== null && activeFeeRate !== null
+                        ? <>
+                            ${activeFee.toFixed(4)}
+                            <span className="text-xs text-muted-foreground ml-1">
+                                ({(activeFeeRate * 100).toFixed(3)}%)
+                            </span>
+                        </>
                         : "-"}
                 </span>
             </div>

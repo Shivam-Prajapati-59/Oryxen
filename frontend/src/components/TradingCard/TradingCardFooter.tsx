@@ -1,12 +1,6 @@
 "use client";
 
 import React, { useMemo, useState, useCallback, useEffect } from "react";
-import {
-    Tabs,
-    TabsContent,
-    TabsList,
-    TabsTrigger,
-} from "@/components/ui/tabs";
 import { useDriftContext } from "@/features/drift/DriftContext";
 import { useGmxsolContext } from "@/features/gmxsol/GmxsolContext";
 import { useProtocol } from "@/features/protocol-adapter/ProtocolContext";
@@ -15,7 +9,9 @@ import { getAccountSummary } from "@/features/drift/adapter/positions";
 import type { Position } from "@/features/protocol-adapter/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { GMSOL_NETWORK } from "@/features/gmxsol/constants";
 import { toast } from "sonner";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 
 /** Detect wallet-rejected / user-cancelled errors. */
 function isUserCancellation(err: unknown): boolean {
@@ -37,6 +33,9 @@ const formatUsd = (value: number): string => {
     return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 
+const gmsolExplorerUrl = (signature?: string | null): string | null =>
+    signature ? `https://solscan.io/tx/${signature}?cluster=${GMSOL_NETWORK}` : null;
+
 const TradingCardFooter = () => {
     const { activeProtocol } = useProtocol();
     const drift = useDriftContext();
@@ -44,12 +43,20 @@ const TradingCardFooter = () => {
 
     // Per-order cancel loading state
     const [cancellingOrder, setCancellingOrder] = useState<string | null>(null);
+    const [closingPosition, setClosingPosition] = useState<string | null>(null);
 
     const handleCancelOrder = useCallback(async (orderAddress: string) => {
         setCancellingOrder(orderAddress);
         try {
-            await gmsol.submitCloseOrder(orderAddress);
-            toast.success("Order cancelled.");
+            const sigs = await gmsol.submitCloseOrder(orderAddress);
+            const explorerUrl = gmsolExplorerUrl(sigs?.[0]);
+            toast.success("Order cancelled.", {
+                description: explorerUrl ? "View transaction on Solscan" : undefined,
+                action: explorerUrl ? {
+                    label: "Open",
+                    onClick: () => window.open(explorerUrl, "_blank"),
+                } : undefined,
+            });
         } catch (err) {
             if (isUserCancellation(err)) {
                 toast.info("Cancel aborted.");
@@ -60,6 +67,51 @@ const TradingCardFooter = () => {
             setCancellingOrder(null);
         }
     }, [gmsol]);
+
+    const handleClosePosition = useCallback(async (pos: PositionWithMeta) => {
+        const id = `${pos.protocol}-${pos.marketIndex}`;
+        setClosingPosition(id);
+        try {
+            if (pos.protocol === "drift") {
+                const result = await drift.closePosition(pos.marketIndex);
+                const explorerUrl = result?.explorerUrl ?? null;
+                toast.success("Position closed on Drift.", {
+                    description: explorerUrl ? "View transaction on Solscan" : undefined,
+                    action: explorerUrl ? {
+                        label: "Open",
+                        onClick: () => window.open(explorerUrl, "_blank"),
+                    } : undefined,
+                });
+            } else if (pos.protocol === "GMXSol") {
+                if (!pos.marketToken) {
+                    throw new Error("Missing market token for GMXSol position");
+                }
+                const positionInfo = gmsol.positions.find(
+                    (p) => p.marketToken === pos.marketToken && p.side === pos.side
+                );
+                if (!positionInfo) {
+                    throw new Error("Position not found in GMXSol positions");
+                }
+                const sigs = await gmsol.submitClosePosition(positionInfo);
+                const explorerUrl = gmsolExplorerUrl(sigs?.[0]);
+                toast.success("Position close transaction sent.", {
+                    description: explorerUrl ? "View transaction on Solscan" : undefined,
+                    action: explorerUrl ? {
+                        label: "Open",
+                        onClick: () => window.open(explorerUrl, "_blank"),
+                    } : undefined,
+                });
+            }
+        } catch (err) {
+            if (isUserCancellation(err)) {
+                toast.info("Close action aborted.");
+            } else {
+                toast.error(err instanceof Error ? err.message : "Failed to close position");
+            }
+        } finally {
+            setClosingPosition(null);
+        }
+    }, [drift, gmsol]);
 
     // ── Drift data ─────────────────────────────────────────────────
     const isDriftReady = drift.isInitialized && drift.userAccountExists === true;
@@ -92,6 +144,8 @@ const TradingCardFooter = () => {
     // ── GMSOL: extract base symbols for Pyth price subscription ───
     const gmsolBaseSymbols = useMemo(() => {
         const symbols = new Set<string>();
+        // Always include SOL for wallet balance USD conversion
+        symbols.add("SOL");
         for (const pos of gmsol.positions) {
             const market = gmsol.markets.find(
                 (m) => m.marketTokenMint === pos.marketToken,
@@ -156,6 +210,7 @@ const TradingCardFooter = () => {
                             liquidationPrice: e.liquidationPrice,
                             protocol: "GMXSol" as const,
                             side: e.raw.side,
+                            marketToken: e.raw.marketToken,
                         };
                     });
 
@@ -186,6 +241,7 @@ const TradingCardFooter = () => {
                                 liquidationPrice: undefined as number | undefined,
                                 protocol: "GMXSol" as const,
                                 side: pos.side,
+                                marketToken: pos.marketToken,
                             };
                         })
                         .filter((p) => p.size >= 0.01),
@@ -194,10 +250,10 @@ const TradingCardFooter = () => {
         })();
 
         return () => { cancelled = true; };
-    }, [gmsol.positions, gmsol.markets, pythPrices]);
+    }, [gmsol.positions, gmsol.markets, pythPrices, SIZE_USD_DIVISOR_30_TO_HUMAN]);
 
     // ── Merged views ───────────────────────────────────────────────
-    type PositionWithMeta = Position & { protocol: string; side: string };
+    type PositionWithMeta = Position & { protocol: string; side: string; marketToken?: string };
 
     const allPositions = useMemo((): PositionWithMeta[] => {
         const driftWithProtocol: PositionWithMeta[] = driftPositions.map((p) => ({
@@ -235,7 +291,7 @@ const TradingCardFooter = () => {
                 protocol: "GMXSol",
             };
         });
-    }, [activeProtocol, gmsol.orders, gmsol.markets]);
+    }, [activeProtocol, gmsol.orders, gmsol.markets, SIZE_USD_DIVISOR_30_TO_HUMAN]);
 
     useEffect(() => {
         if (isDriftReady && activeProtocol === "drift" && drift.driftClient && drift.user) {
@@ -247,10 +303,6 @@ const TradingCardFooter = () => {
             }
         }
     }, [isDriftReady, activeProtocol, drift.driftClient, drift.user]);
-
-    const totalPnl = useMemo(() => {
-        return allPositions.reduce((sum, p) => sum + (p.unrealizedPnl || 0), 0);
-    }, [allPositions]);
 
     const driftPnl = useMemo(() => {
         return allPositions
@@ -309,6 +361,7 @@ const TradingCardFooter = () => {
                                         <th className="p-2 text-right font-medium">Lev</th>
                                         <th className="p-2 text-right font-medium">Liq.</th>
                                         <th className="p-2 text-left font-medium">Proto</th>
+                                        <th className="p-2 text-right font-medium">Action</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -340,6 +393,17 @@ const TradingCardFooter = () => {
                                                 <Badge variant="outline" className="text-[12px] rounded-none">
                                                     {pos.protocol === "drift" ? "Drift" : "GMXSol"}
                                                 </Badge>
+                                            </td>
+                                            <td className="p-2 text-right">
+                                                <Button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    className="h-6 text-xs text-red-500 hover:text-red-400"
+                                                    onClick={() => handleClosePosition(pos as PositionWithMeta)}
+                                                    disabled={closingPosition === `${pos.protocol}-${pos.marketIndex}`}
+                                                >
+                                                    {closingPosition === `${pos.protocol}-${pos.marketIndex}` ? "Closing..." : "Close"}
+                                                </Button>
                                             </td>
                                         </tr>
                                     ))}
@@ -408,20 +472,37 @@ const TradingCardFooter = () => {
                 {/* ─── BALANCE ──────────────────────────────────────── */}
                 <TabsContent value="balance" className="mt-0">
                     <div className="p-6 space-y-4">
+                        {/* Wallet Balance (SOL) - Common for both protocols */}
+                        <div className="space-y-2 pb-4 border-b border-border/50">
+                            <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Wallet Balance</div>
+                            <div className="flex justify-between text-sm">
+                                <span className="text-muted-foreground">SOL Balance:</span>
+                                <span className="text-foreground font-medium font-mono">
+                                    {drift.walletBalance.toFixed(4)} SOL
+                                </span>
+                            </div>
+                            <div className="flex justify-between text-sm">
+                                <span className="text-muted-foreground">USD Value:</span>
+                                <span className="text-foreground font-medium font-mono">
+                                    {formatUsd(drift.walletBalance * (pythPrices["SOL"] || 0))}
+                                </span>
+                            </div>
+                        </div>
+
                         {/* Drift balances */}
                         {(activeProtocol === "drift" || !activeProtocol) && (
                             <div className="space-y-2">
-                                <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Drift</div>
+                                <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Drift Account</div>
                                 <div className="flex justify-between text-sm">
-                                    <span className="text-muted-foreground">Available Balance:</span>
+                                    <span className="text-muted-foreground">Deposited Collateral:</span>
                                     <span className="text-foreground font-medium font-mono">
-                                        {isDriftReady ? formatUsd(driftCollateral.free) : "-"} USDC
+                                        {isDriftReady ? formatUsd(driftCollateral.total) : "-"} USDC
                                     </span>
                                 </div>
                                 <div className="flex justify-between text-sm">
-                                    <span className="text-muted-foreground">Total Equity:</span>
+                                    <span className="text-muted-foreground">Available (Free):</span>
                                     <span className="text-foreground font-medium font-mono">
-                                        {isDriftReady ? formatUsd(driftCollateral.total) : "-"} USDC
+                                        {isDriftReady ? formatUsd(driftCollateral.free) : "-"} USDC
                                     </span>
                                 </div>
                                 <div className="flex justify-between text-sm">
@@ -443,6 +524,12 @@ const TradingCardFooter = () => {
                                         {gmsol.privyWallet
                                             ? `${gmsol.privyWallet.address.slice(0, 4)}...${gmsol.privyWallet.address.slice(-4)}`
                                             : "Not connected"}
+                                    </span>
+                                </div>
+                                <div className="flex justify-between text-sm">
+                                    <span className="text-muted-foreground">SOL Balance:</span>
+                                    <span className="text-foreground font-medium font-mono">
+                                        {gmsol.walletBalance.toFixed(4)} SOL
                                     </span>
                                 </div>
                                 <div className="flex justify-between text-sm">

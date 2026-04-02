@@ -8,7 +8,7 @@ interface OrderTypeSelectorProps {
     limitPrice: string;
     setLimitPrice: Dispatch<SetStateAction<string>>;
     freeCollateral: number;
-    activeProtocol: string;
+    activeProtocol: string | null;
     isProtocolReady: boolean;
     isGmxsolReady: boolean;
     formatPrice: (price: number | null | undefined) => string;
