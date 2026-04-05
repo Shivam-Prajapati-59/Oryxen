@@ -6,17 +6,17 @@
   "devDependencies": {
     "@types/bun": "latest",
     "@types/ws": "^8.18.1",
-    "drizzle-kit": "^0.31.8",
+    "drizzle-kit": "^0.31.10",
     "tsx": "^4.21.0"
   },
   "peerDependencies": {
-    "typescript": "^5"
+    "typescript": "^5.9.3"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",
     "@types/express": "^5.0.6",
-    "dotenv": "^17.2.3",
-    "drizzle-orm": "^0.45.1",
+    "dotenv": "^17.4.0",
+    "drizzle-orm": "^0.45.2",
     "express": "^5.2.1",
     "express-rate-limit": "^8.3.2",
     "helmet": "^8.1.0",
