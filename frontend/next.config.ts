@@ -38,6 +38,19 @@ const nextConfig: NextConfig = {
       crypto: { browser: "crypto-browserify" },
     },
   },
+  webpack: (config) => {
+    config.experiments = {
+      ...(config.experiments ?? {}),
+      asyncWebAssembly: true,
+    };
+
+    config.module.rules.push({
+      test: /\.wasm$/,
+      type: "webassembly/async",
+    });
+
+    return config;
+  },
   // Transpile drift-labs packages
   transpilePackages: ["@drift-labs/sdk-browser", "@solana/web3.js"],
 };
