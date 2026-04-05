@@ -34,18 +34,18 @@ export default function HeroSection() {
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute inset-0 opacity-85">
           <LightPillar
-            className="h-full w-full"
-            topColor="#79B8FF"
-            bottomColor="#F472B6"
-            intensity={1.1}
-            rotationSpeed={0.18}
-            glowAmount={0.01}
-            pillarWidth={2.8}
-            pillarHeight={0.55}
-            noiseIntensity={0.18}
-            pillarRotation={7}
+            topColor="#1a0c55"
+            bottomColor="#4522a5"
+            intensity={1}
+            rotationSpeed={0.3}
+            glowAmount={0.002}
+            pillarWidth={3}
+            pillarHeight={0.4}
+            noiseIntensity={0.5}
+            pillarRotation={25}
+            interactive={false}
             mixBlendMode="screen"
-            quality="medium"
+            quality="high"
           />
         </div>
         <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(4,7,17,0.16),rgba(4,7,17,0.72)_45%,rgba(4,7,17,0.96))]" />
@@ -108,9 +108,8 @@ export default function HeroSection() {
           {protocolCards.map((card, index) => (
             <article
               key={card.name}
-              className={`group relative overflow-hidden rounded-[2rem] border border-white/10 bg-slate-950/70 p-6 shadow-[0_24px_80px_rgba(3,8,20,0.45)] backdrop-blur transition duration-500 hover:-translate-y-1 ${
-                index === 0 ? "md:translate-y-10" : ""
-              }`}
+              className={`group relative overflow-hidden rounded-[2rem] border border-white/10 bg-slate-950/70 p-6 shadow-[0_24px_80px_rgba(3,8,20,0.45)] backdrop-blur transition duration-500 hover:-translate-y-1 ${index === 0 ? "md:translate-y-10" : ""
+                }`}
             >
               <div
                 className={`absolute inset-0 bg-gradient-to-br ${card.accent} opacity-80 transition duration-500 group-hover:opacity-100`}
