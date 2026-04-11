@@ -8,6 +8,20 @@ import { WebSocketManager } from "./src/services/websocket/wsManager";
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+const normalizeOrigin = (value?: string | null) =>
+  value ? value.replace(/\/$/, "") : "";
+
+const allowedOrigins = new Set(
+  [
+    process.env.FRONTEND_URL,
+    ...(process.env.ALLOWED_ORIGINS || "")
+      .split(",")
+      .map((origin) => origin.trim()),
+  ]
+    .map((origin) => normalizeOrigin(origin))
+    .filter(Boolean),
+);
+
 /* -------------------------------------------------------------------------- */
 /*                                 Middleware                                 */
 /* -------------------------------------------------------------------------- */
@@ -20,17 +34,26 @@ app.use(helmet());
 
 // CORS middleware with strict domain locking
 app.use((req, res, next) => {
-  const allowedOrigin = process.env.FRONTEND_URL || "http://localhost:3000";
   const origin = req.headers.origin;
+  const normalizedOrigin = normalizeOrigin(origin);
+  const isAllowedOrigin =
+    !!normalizedOrigin &&
+    (allowedOrigins.size > 0
+      ? allowedOrigins.has(normalizedOrigin)
+      : normalizedOrigin === "http://localhost:3000");
 
-  if (origin === allowedOrigin) {
+  if (isAllowedOrigin && origin) {
+    res.header("Vary", "Origin");
     res.header("Access-Control-Allow-Origin", origin);
-    
+
     if (process.env.FRONTEND_SENDS_CREDENTIALS === "true") {
       res.header("Access-Control-Allow-Credentials", "true");
     }
 
-    res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    res.header(
+      "Access-Control-Allow-Methods",
+      "GET, POST, PUT, DELETE, OPTIONS",
+    );
     res.header(
       "Access-Control-Allow-Headers",
       "Origin, X-Requested-With, Content-Type, Accept, Authorization",
